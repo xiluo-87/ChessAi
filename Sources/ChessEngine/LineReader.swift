@@ -67,10 +67,15 @@ final class LineReader: @unchecked Sendable {
             }
             nextID += 1
             let id = nextID
+            // One reader at a time (the engine serializes its commands). Should a second waiter arrive anyway, the
+            // first gets a timeout instead of being dropped unresumed.
+            let displaced = waiter
             waiter = (id, cont)
             lock.unlock()
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in
-                self?.fireTimeout(id)
+            displaced?.cont.resume(returning: .timeout)
+            // Strong capture: the continuation must be resumed even if the engine is released meanwhile.
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                self.fireTimeout(id)
             }
         }
     }

@@ -8,31 +8,37 @@ struct GamePanel: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Button("New as White") { model.newGame(humanPlays: .white) }
-                    Button("New as Black") { model.newGame(humanPlays: .black) }
-                    Spacer()
-                    Button("Resign", role: .destructive) { model.resign() }
-                        .disabled(!(model.phase == .playing || model.phase == .personaThinking))
-                }
-                .disabled(!model.engineReady)
-
-                personaHeader
-                if let record = model.lastRecord { PostGameView(record: record) }
-                MoveListView()
-                if !model.lastCandidates.isEmpty { candidates }
-                CostView(calls: model.gameCalls)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Button("New as White") { model.newGame(humanPlays: .white) }
+                Button("New as Black") { model.newGame(humanPlays: .black) }
+                Spacer()
+                Button("Resign", role: .destructive) { model.resign() }
+                    .disabled(!(model.phase == .playing || model.phase == .personaThinking))
             }
-            .padding()
+            .disabled(!model.engineReady)
+
+            personaHeader
+            if let record = model.lastRecord {
+                ScrollView { PostGameView(record: record) }
+                    .scrollIndicators(.visible)
+                    .frame(maxHeight: 220)
+            }
+            Divider()
+            // The move list takes the remaining height and scrolls on its own.
+            MoveListView()
+                .frame(maxHeight: .infinity)
+            if model.showThoughts, !model.lastCandidates.isEmpty { candidates }
+            Divider()
+            CostView(calls: model.gameCalls)
         }
+        .padding()
     }
 
     private var personaHeader: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("\(model.persona.name)  ·  \(model.persona.record.text)").font(.headline)
-            Text(model.persona.style).font(.callout).foregroundStyle(.secondary)
+            Text(model.persona.style).font(.callout).foregroundStyle(.secondary).lineLimit(3)
         }
     }
 
@@ -47,27 +53,82 @@ struct GamePanel: View {
     }
 }
 
+/// Single player: moves only, White and Black on one line. With thoughts shown (PvP), one row per move with the
+/// persona's full reason wrapped below it.
 struct MoveListView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Moves").font(.subheadline.bold())
-            if model.notes.isEmpty { Text("No moves yet.").foregroundStyle(.secondary) }
-            ForEach(model.notes, id: \.ply) { note in
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(note.ply % 2 == 0 ? "\(note.ply / 2 + 1)." : "\(note.ply / 2 + 1)…")
-                        .frame(width: 34, alignment: .trailing)
-                        .foregroundStyle(.secondary)
-                    Text(note.san).bold().frame(width: 56, alignment: .leading)
-                    if note.byPersona {
-                        SourceBadge(source: note.source)
-                        Text(note.reason ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(3)
-                    } else {
-                        Text(model.settings.playerName).font(.caption).foregroundStyle(.tertiary)
+            if model.notes.isEmpty {
+                Text("No moves yet.").foregroundStyle(.secondary)
+                Spacer()
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: model.showThoughts ? 8 : 3) {
+                            if model.showThoughts {
+                                ForEach(model.notes, id: \.ply) { thoughtRow($0).id($0.ply) }
+                            } else {
+                                ForEach(pairs, id: \.number) { pairRow($0).id($0.number) }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.trailing, 12)
+                    }
+                    .scrollIndicators(.visible)
+                    .onChange(of: model.notes.count) { _, _ in
+                        withAnimation { proxy.scrollTo(model.showThoughts ? model.notes.count - 1 : pairs.last?.number, anchor: .bottom) }
                     }
                 }
-                .font(.system(.callout, design: .monospaced))
+            }
+        }
+    }
+
+    private struct Pair { var number: Int; var white: String?; var black: String? }
+
+    /// Plies grouped by move number (a game started with Black to move leaves White's first cell empty).
+    private var pairs: [Pair] {
+        var result: [Pair] = []
+        let offset = model.game.startPosition.sideToMove == .black ? 1 : 0
+        for note in model.notes {
+            let index = note.ply + offset
+            let number = index / 2 + 1
+            if result.last?.number != number { result.append(Pair(number: number)) }
+            if index % 2 == 0 { result[result.count - 1].white = note.san } else { result[result.count - 1].black = note.san }
+        }
+        return result
+    }
+
+    private func pairRow(_ pair: Pair) -> some View {
+        HStack(spacing: 10) {
+            Text("\(pair.number).").frame(width: 36, alignment: .trailing).foregroundStyle(.secondary)
+            Text(pair.white ?? "…").bold().frame(width: 80, alignment: .leading)
+            Text(pair.black ?? "").bold().frame(width: 80, alignment: .leading)
+            Spacer(minLength: 0)
+        }
+        .font(.system(.body, design: .monospaced))
+        .padding(.vertical, 2)
+        .background(pair.number % 2 == 0 ? Color.secondary.opacity(0.06) : .clear)
+    }
+
+    private func thoughtRow(_ note: MoveNote) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(note.ply % 2 == 0 ? "\(note.ply / 2 + 1)." : "\(note.ply / 2 + 1)…")
+                    .frame(width: 36, alignment: .trailing).foregroundStyle(.secondary)
+                Text(note.san).bold()
+                if note.byPersona { SourceBadge(source: note.source) }
+            }
+            .font(.system(.callout, design: .monospaced))
+            if note.byPersona, let reason = note.reason, !reason.isEmpty {
+                Text(reason)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 42)
+                    .textSelection(.enabled)
             }
         }
     }

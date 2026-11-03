@@ -5,6 +5,9 @@ struct BoardView: View {
     @EnvironmentObject var model: AppModel
     @State private var selected: Square?
     @State private var pendingPromotion: (from: Square, to: Square)?
+    /// The square whose piece is being dragged, and where the pointer is, in board coordinates.
+    @State private var dragging: Square?
+    @State private var dragLocation: CGPoint = .zero
 
     private let light = Color(red: 0.93, green: 0.89, blue: 0.80)
     private let dark = Color(red: 0.55, green: 0.42, blue: 0.32)
@@ -25,6 +28,16 @@ struct BoardView: View {
                     }
                 }
             }
+            .coordinateSpace(name: "board")
+            .overlay(alignment: .topLeading) {
+                if let from = dragging, let piece = model.game.current.piece(at: from) {
+                    pieceGlyph(piece, cell: cell)
+                        .scaleEffect(1.12)
+                        .position(dragLocation)
+                        .allowsHitTesting(false)
+                }
+            }
+            .gesture(drag(cell: cell))
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .shadow(radius: 4)
             .frame(width: geo.size.width, height: geo.size.height)
@@ -67,10 +80,7 @@ struct BoardView: View {
                 Circle().fill(Color.red.opacity(0.45)).padding(cell * 0.06)
             }
             if let piece = position.piece(at: square) {
-                Text(piece.symbol)
-                    .font(.system(size: cell * 0.78))
-                    .foregroundStyle(piece.color == .white ? Color.white : Color.black)
-                    .shadow(color: piece.color == .white ? .black.opacity(0.9) : .white.opacity(0.35), radius: 0.8)
+                pieceGlyph(piece, cell: cell).opacity(dragging == square ? 0.25 : 1)
             }
             if targets.contains(square) {
                 Circle()
@@ -102,23 +112,57 @@ struct BoardView: View {
         .padding(cell * 0.04)
     }
 
+    private func pieceGlyph(_ piece: Piece, cell: CGFloat) -> some View {
+        Text(piece.symbol)
+            .font(.system(size: cell * 0.78))
+            .foregroundStyle(piece.color == .white ? Color.white : Color.black)
+            .shadow(color: piece.color == .white ? .black.opacity(0.9) : .white.opacity(0.35), radius: 0.8)
+    }
+
+    private var humanToMove: Bool {
+        model.phase == .playing && model.game.current.sideToMove == model.humanColor
+    }
+
+    /// The square under a point in board coordinates, nil outside the board.
+    private func square(at point: CGPoint, cell: CGFloat) -> Square? {
+        let column = Int(point.x / cell), row = Int(point.y / cell)
+        guard point.x >= 0, point.y >= 0, column < 8, row < 8 else { return nil }
+        return square(at: row * 8 + column)
+    }
+
+    /// Drag a piece to a square; a short drag stays a click (minimum distance), so click-to-move keeps working.
+    private func drag(cell: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named("board"))
+            .onChanged { value in
+                if dragging == nil {
+                    guard humanToMove, let from = square(at: value.startLocation, cell: cell),
+                          model.game.current.piece(at: from)?.color == model.humanColor else { return }
+                    dragging = from
+                    selected = from
+                }
+                dragLocation = value.location
+            }
+            .onEnded { value in
+                defer { dragging = nil }
+                guard let from = dragging, let to = square(at: value.location, cell: cell), to != from else { return }
+                if !attempt(from: from, to: to) { selected = nil }
+            }
+    }
+
+    /// Plays from → to when legal (asking for the piece on a promotion); false when it is no legal move.
+    @discardableResult
+    private func attempt(from: Square, to: Square) -> Bool {
+        let moves = model.game.current.legalMoves(from: from).filter { $0.to == to }
+        guard let move = moves.first else { return false }
+        selected = nil
+        if moves.count > 1 { pendingPromotion = (from, to) } else { model.humanMove(move) }
+        return true
+    }
+
     private func tap(_ square: Square) {
-        guard model.phase == .playing else { return }
+        guard humanToMove else { return }
         let position = model.game.current
-        guard position.sideToMove == model.humanColor else { return }
-        if let from = selected {
-            let moves = position.legalMoves(from: from).filter { $0.to == square }
-            if moves.count > 1 {
-                pendingPromotion = (from, square)
-                selected = nil
-                return
-            }
-            if let move = moves.first {
-                model.humanMove(move)
-                selected = nil
-                return
-            }
-        }
+        if let from = selected, attempt(from: from, to: square) { return }
         if let piece = position.piece(at: square), piece.color == model.humanColor {
             selected = selected == square ? nil : square
         } else {

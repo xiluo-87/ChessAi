@@ -82,9 +82,32 @@ public final class MemoryStore: @unchecked Sendable {
     }
 
     public static let defaultPersona = PersonaProfile(
-        id: "kasia", name: "Kasia",
-        style: "A curious positional player who likes harmonious development, prefers the initiative over material, "
+        id: "json-bourne", name: "JSON Bourne",
+        style: "A calm, methodical player who likes harmonious development, prefers the initiative over material, "
             + "and learns from every game.")
+
+    /// The first persona was called Kasia (id "kasia"). Its folder, with its notes and its dossiers, moves to the
+    /// default persona, and its games are relabelled. Does nothing once moved, or when there is nothing to move.
+    public func migrateLegacyPersona() {
+        let fm = FileManager.default
+        let old = root.appendingPathComponent("personas/kasia")
+        let new = root.appendingPathComponent("personas/\(Self.defaultPersona.id)")
+        guard fm.fileExists(atPath: old.path), !fm.fileExists(atPath: new.path) else { return }
+        do {
+            try fm.moveItem(at: old, to: new)
+        } catch {
+            return
+        }
+        if var persona = persona(Self.defaultPersona.id) {
+            persona.id = Self.defaultPersona.id
+            if persona.name == "Kasia" { persona.name = Self.defaultPersona.name }
+            try? save(persona)
+        }
+        for var game in games() where game.personaID == "kasia" {
+            game.personaID = Self.defaultPersona.id
+            try? save(game)
+        }
+    }
 
     // MARK: Personas
 

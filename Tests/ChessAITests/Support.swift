@@ -35,11 +35,11 @@ func tempStore() -> (MemoryStore, URL) {
     return (MemoryStore(root: url), url)
 }
 
-func singlePlayer(_ opponent: OpponentID, color: PieceColor = .white, persona: String = "kasia") -> MatchContext {
+func singlePlayer(_ opponent: OpponentID, color: PieceColor = .white, persona: String = "json-bourne") -> MatchContext {
     try! MatchContext(mode: .singlePlayer, personaID: persona, opponent: opponent, personaColor: color)
 }
 
-func pvp(_ opponent: OpponentID, color: PieceColor = .white, persona: String = "kasia") -> MatchContext {
+func pvp(_ opponent: OpponentID, color: PieceColor = .white, persona: String = "json-bourne") -> MatchContext {
     try! MatchContext(mode: .pvp, personaID: persona, opponent: opponent, personaColor: color)
 }
 

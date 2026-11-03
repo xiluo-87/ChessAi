@@ -50,7 +50,7 @@ final class MemoryBudgetTests: XCTestCase {
         var persona = MemoryStore.defaultPersona
         persona.notes = (0..<40).map { note("n\($0)", confidence: 0.5) }
         try store.save(persona)
-        XCTAssertEqual(store.persona("kasia")?.notes.count, MemoryBudget.persona.maxNotes)
+        XCTAssertEqual(store.persona(MemoryStore.defaultPersona.id)?.notes.count, MemoryBudget.persona.maxNotes)
     }
 
     func testRepertoireFiltersAndSorts() {
@@ -63,5 +63,33 @@ final class MemoryBudgetTests: XCTestCase {
             note("e", .strategy, confidence: 0.9, line: ["c4"], side: .white),
         ]
         XCTAssertEqual(persona.repertoire(for: .white).map(\.id), ["b", "a"])
+    }
+
+    func testLegacyPersonaMigratesToJSONBourne() throws {
+        let (store, root) = tempStore()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var legacy = MemoryStore.defaultPersona
+        legacy.id = "kasia"
+        legacy.name = "Kasia"
+        legacy.notes = [note("keep-me", confidence: 0.8)]
+        try store.save(legacy)
+        let ctx = try MatchContext(mode: .singlePlayer, personaID: "kasia", opponent: .human("alice"), personaColor: .white)
+        var dossier = OpponentDossier(opponent: .human("alice"))
+        dossier.notes = [note("alice-note", confidence: 0.6)]
+        try store.save(dossier, persona: "kasia", in: ctx)
+        try store.save(GameRecord(id: "g1", date: Date(), personaID: "kasia", opponent: .human("alice"),
+                                  personaColor: .white, result: .draw, end: nil, pgn: "", notes: []))
+
+        store.migrateLegacyPersona()
+
+        let migrated = try XCTUnwrap(store.persona("json-bourne"))
+        XCTAssertEqual(migrated.name, "JSON Bourne")
+        XCTAssertEqual(migrated.notes.map(\.id), ["keep-me"])
+        XCTAssertNil(store.persona("kasia"))
+        let newCtx = try MatchContext(mode: .singlePlayer, personaID: "json-bourne", opponent: .human("alice"), personaColor: .white)
+        XCTAssertEqual(store.dossier(.human("alice"), persona: "json-bourne", in: newCtx)?.notes.map(\.id), ["alice-note"])
+        XCTAssertEqual(store.games().first?.personaID, "json-bourne")
+        store.migrateLegacyPersona()  // second run is a no-op
+        XCTAssertNotNil(store.persona("json-bourne"))
     }
 }

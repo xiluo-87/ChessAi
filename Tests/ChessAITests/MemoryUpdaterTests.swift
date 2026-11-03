@@ -116,7 +116,7 @@ final class MemoryUpdateEndToEndTests: XCTestCase {
 
     func record(opponent: OpponentID, result: GameResult = .whiteWins) -> GameRecord {
         GameRecord(
-            id: "game-1", date: Date(), personaID: "kasia", opponent: opponent, personaColor: .white, result: result,
+            id: "game-1", date: Date(), personaID: "json-bourne", opponent: opponent, personaColor: .white, result: result,
             end: .checkmate, pgn: "1. e4 e5 *",
             notes: [MoveNote(ply: 0, san: "e4", byPersona: true, source: .book), MoveNote(ply: 1, san: "e5", byPersona: false)])
     }
@@ -137,11 +137,11 @@ final class MemoryUpdateEndToEndTests: XCTestCase {
         XCTAssertEqual(out.record.summary, "A tidy win.")
         XCTAssertEqual(out.dossier?.record.text, "+1 =0 -0")
 
-        let saved = try XCTUnwrap(store.persona("kasia"))
+        let saved = try XCTUnwrap(store.persona("json-bourne"))
         XCTAssertEqual(saved.notes.map(\.id), ["open-e4"])
         XCTAssertEqual(saved.notes[0].evidence, ["game-1"])
         XCTAssertEqual(saved.record.games, 1)
-        let dossier = try XCTUnwrap(store.dossier(.human("alice"), persona: "kasia", in: ctx))
+        let dossier = try XCTUnwrap(store.dossier(.human("alice"), persona: "json-bourne", in: ctx))
         XCTAssertEqual(dossier.notes.map(\.id), ["late-castle"])
         XCTAssertEqual(dossier.record.wins, 1)
         XCTAssertEqual(store.games().map(\.id), ["game-1"])
@@ -155,8 +155,8 @@ final class MemoryUpdateEndToEndTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         var human = OpponentDossier(opponent: .human("alice"))
         human.notes = [note("h", .tendency, statement: "ALICE_NOTE")]
-        try store.save(human, persona: "kasia", in: singlePlayer(.human("alice")))
-        let humanFile = root.appendingPathComponent("personas/kasia/opponents/human-alice.json")
+        try store.save(human, persona: "json-bourne", in: singlePlayer(.human("alice")))
+        let humanFile = root.appendingPathComponent("personas/json-bourne/opponents/human-alice.json")
         let before = try Data(contentsOf: humanFile)
 
         let fake = backend()
@@ -167,11 +167,11 @@ final class MemoryUpdateEndToEndTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: humanFile), before)
         XCTAssertEqual(fake.callCount, 2)
         XCTAssertFalse(fake.requests.contains { $0.prompt.contains("ALICE_NOTE") || $0.system.contains("ALICE_NOTE") })
-        let modelFile = root.appendingPathComponent("personas/kasia/opponents/model-gpt.json")
+        let modelFile = root.appendingPathComponent("personas/json-bourne/opponents/model-gpt.json")
         XCTAssertTrue(FileManager.default.fileExists(atPath: modelFile.path))
         XCTAssertEqual(out.dossier?.opponent, .model("gpt"))
         XCTAssertEqual(out.dossier?.record.draws, 1)
-        XCTAssertEqual(store.dossier(.model("gpt"), persona: "kasia", in: ctx)?.notes.map(\.id), ["late-castle"])
+        XCTAssertEqual(store.dossier(.model("gpt"), persona: "json-bourne", in: ctx)?.notes.map(\.id), ["late-castle"])
         let files = try FileManager.default.contentsOfDirectory(atPath: humanFile.deletingLastPathComponent().path).sorted()
         XCTAssertEqual(files, ["human-alice.json", "model-gpt.json"])
     }

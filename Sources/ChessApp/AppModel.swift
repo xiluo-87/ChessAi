@@ -44,7 +44,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastRecord: GameRecord?
     @Published private(set) var gameCalls: [CallRecord] = []
     @Published private(set) var lastCandidates: [Candidate] = []
-    @Published var status = "Start a new game."
+    @Published var status = "Starting Stockfish…"
+    /// Published so the New Game buttons enable once the engine is up.
+    @Published private(set) var engineReady = false
     @Published var error: String?
 
     let store = MemoryStore()
@@ -56,23 +58,28 @@ final class AppModel: ObservableObject {
     private var gameID = ""
 
     init() {
-        let settings = AppSettings.load()
+        var settings = AppSettings.load()
+        if settings.personaID == "kasia" { settings.personaID = MemoryStore.defaultPersona.id }
         self.settings = settings
         router = ModelRouter(routing: settings.routing)
         let store = self.store
+        store.migrateLegacyPersona()
         if store.persona(settings.personaID) == nil { try? store.save(MemoryStore.defaultPersona) }
         persona = store.persona(settings.personaID) ?? MemoryStore.defaultPersona
         Task { await startEngine() }
     }
 
     var personaColor: PieceColor { humanColor.opposite }
-    var engineReady: Bool { engine != nil }
+    /// The persona's reasons and candidates are shown in PvP only; in single player you see just the moves.
+    var showThoughts: Bool { context?.mode == .pvp }
 
     private func startEngine() async {
         do {
             let engine = try StockfishEngine()
             try await engine.start()
             self.engine = engine
+            engineReady = true
+            if phase == .idle { status = "Start a new game." }
         } catch {
             self.error = "Stockfish could not start (\(error)). Install it with: brew install stockfish"
         }

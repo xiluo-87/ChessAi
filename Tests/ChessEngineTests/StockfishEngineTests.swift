@@ -75,4 +75,21 @@ final class StockfishEngineTests: XCTestCase {
             XCTFail("expected terminated")
         } catch EngineError.terminated {}
     }
+
+    /// Regression: overlapping calls (the app starts a new game while the persona already searches) used to share
+    /// the engine's output stream, dropping a waiter's continuation and leaving that call suspended forever.
+    func testOverlappingCallsAllComplete() async throws {
+        let engine = try await makeEngine()
+        defer { Task { await engine.shutdown() } }
+        let start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        let mate = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1"
+        async let a = engine.analyse(fen: start, multiPV: 3, limits: EngineLimits(depth: 10))
+        async let reset: Void = engine.newGame()
+        async let b = engine.bestMove(fen: mate, limits: EngineLimits(depth: 6))
+        async let c = engine.analyse(fen: mate, multiPV: 1, limits: EngineLimits(depth: 6))
+        let (lines, _, best, mateLines) = try await (a, reset, b, c)
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertEqual(best, "d1d8")
+        XCTAssertEqual(mateLines.first?.score.mate, 1)
+    }
 }

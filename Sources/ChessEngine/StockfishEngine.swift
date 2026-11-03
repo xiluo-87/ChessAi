@@ -33,9 +33,34 @@ public actor StockfishEngine {
         if let p = process, p.isRunning { p.terminate() }
     }
 
+    // MARK: - Serialization
+
+    /// The actor is reentrant: while one command awaits the engine's output, another call may enter. Stockfish's
+    /// output is one stream, so each command holds this lock until its answer is read; later calls queue in order.
+    private var busy = false
+    private var queued: [CheckedContinuation<Void, Never>] = []
+
+    private func acquire() async {
+        if busy {
+            await withCheckedContinuation { queued.append($0) }  // busy stays true: release hands the lock over
+        } else {
+            busy = true
+        }
+    }
+
+    private func release() {
+        if queued.isEmpty { busy = false } else { queued.removeFirst().resume() }
+    }
+
     // MARK: - Lifecycle
 
     public func start(threads: Int = 2, hashMB: Int = 64) async throws {
+        await acquire()
+        defer { release() }
+        try await startEngine(threads: threads, hashMB: hashMB)
+    }
+
+    private func startEngine(threads: Int, hashMB: Int) async throws {
         if started { return }
         signal(SIGPIPE, SIG_IGN)
         let p = Process()
@@ -76,12 +101,20 @@ public actor StockfishEngine {
     }
 
     public func setOption(name: String, value: String) async throws {
+        await acquire()
+        defer { release() }
+        try await applyOption(name: name, value: value)
+    }
+
+    private func applyOption(name: String, value: String) async throws {
         try send("setoption name \(name) value \(value)")
         if name.lowercased() == "multipv", let v = Int(value) { currentMultiPV = v }
         try await sync()
     }
 
     public func newGame() async throws {
+        await acquire()
+        defer { release() }
         try send("ucinewgame")
         try await sync()
     }
@@ -102,6 +135,12 @@ public actor StockfishEngine {
     // MARK: - Search
 
     public func analyse(fen: String, multiPV: Int, limits: EngineLimits) async throws -> [EngineLine] {
+        await acquire()
+        defer { release() }
+        return try await analyseNow(fen: fen, multiPV: multiPV, limits: limits)
+    }
+
+    private func analyseNow(fen: String, multiPV: Int, limits: EngineLimits) async throws -> [EngineLine] {
         let n = max(1, multiPV)
         if n != currentMultiPV {
             try send("setoption name MultiPV value \(n)")
@@ -113,6 +152,12 @@ public actor StockfishEngine {
     }
 
     public func bestMove(fen: String, limits: EngineLimits) async throws -> String? {
+        await acquire()
+        defer { release() }
+        return try await bestMoveNow(fen: fen, limits: limits)
+    }
+
+    private func bestMoveNow(fen: String, limits: EngineLimits) async throws -> String? {
         if currentMultiPV != 1 {
             try send("setoption name MultiPV value 1")
             currentMultiPV = 1
