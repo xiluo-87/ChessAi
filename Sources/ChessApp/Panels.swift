@@ -16,8 +16,9 @@ struct GamePanel: View {
                 Button("Resign", role: .destructive) { model.resign() }
                     .disabled(!(model.phase == .playing || model.phase == .personaThinking))
             }
-            .disabled(!model.engineReady)
+            .disabled(!model.engineReady || (model.phase == .watching && model.engineMatch == nil))
 
+            EngineMatchBox()
             personaHeader
             if let record = model.lastRecord {
                 ScrollView { PostGameView(record: record) }
@@ -37,7 +38,12 @@ struct GamePanel: View {
 
     private var personaHeader: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("\(model.persona.name)  ·  \(model.persona.record.text)").font(.headline)
+            Text(model.persona.name).font(.headline)
+            HStack(spacing: 14) {
+                Label("vs you \(model.offlineScore.text)", systemImage: "person.fill")
+                Label("Lichess \(model.lichessScore.text)", systemImage: "globe")
+            }
+            .font(.callout.monospacedDigit())
             Text(model.persona.style).font(.callout).foregroundStyle(.secondary).lineLimit(3)
         }
     }
@@ -130,6 +136,61 @@ struct MoveListView: View {
                     .padding(.leading, 42)
                     .textSelection(.enabled)
             }
+        }
+    }
+}
+
+/// Start or stop a watched match: the persona against plain Stockfish at a chosen Elo.
+struct EngineMatchBox: View {
+    @EnvironmentObject var model: AppModel
+    @AppStorage("engineMatch.depth") private var depth = 10
+    @AppStorage("engineMatch.white") private var personaWhite = true
+    @State private var expanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Depth for both").font(.callout)
+                    Slider(value: Binding(get: { Double(depth) }, set: { depth = Int($0) }), in: 2...20, step: 1)
+                    Text("\(depth) · \(Self.level(depth))").font(.callout.monospacedDigit()).frame(width: 120, alignment: .trailing)
+                }
+                HStack {
+                    Picker("", selection: $personaWhite) {
+                        Text("\(model.persona.name) white").tag(true)
+                        Text("\(model.persona.name) black").tag(false)
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 200)
+                    Spacer()
+                    if model.engineMatch != nil && model.phase == .watching {
+                        Button("Stop") { model.stopEngineMatch() }
+                    } else {
+                        Button("Start") {
+                            model.startEngineMatch(personaPlays: personaWhite ? .white : .black, depth: depth)
+                        }
+                        .disabled(!model.engineReady || model.phase == .watching || model.phase == .personaThinking)
+                    }
+                }
+                Text("Equal strength: Stockfish plays its best move at this depth; \(model.persona.name) gets Stockfish's candidates at the same depth and its model picks one. Just to watch: not counted, reviewed or saved.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
+        } label: {
+            Text("\(model.persona.name) vs Stockfish").font(.subheadline.bold())
+        }
+    }
+}
+
+extension EngineMatchBox {
+    /// A rough feel for the depth, not a measured rating.
+    static func level(_ depth: Int) -> String {
+        switch depth {
+        case ..<5: "beginner"
+        case ..<8: "club"
+        case ..<12: "strong club"
+        case ..<16: "master"
+        default: "superhuman"
         }
     }
 }

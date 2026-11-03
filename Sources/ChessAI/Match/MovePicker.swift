@@ -74,7 +74,8 @@ public actor MovePicker {
         self.system = Prompts.matchSystem(persona: persona, dossier: usable, context: context)
     }
 
-    public func choose(in game: Game) async throws -> MoveDecision {
+    /// `allowModel: false` (a short clock) plays the engine's best line instead of asking the model.
+    public func choose(in game: Game, allowModel: Bool = true) async throws -> MoveDecision {
         let position = game.current
         let legal = position.legalMoves()
         guard let only = legal.first else { throw EngineError.noResponse("no legal move") }
@@ -103,6 +104,7 @@ public actor MovePicker {
             return engineChoice(gap >= settings.obviousGapCp ? "clearly best move" : "the only sound move")
         }
         if game.moves.count < settings.thinkFromPly { return engineChoice("early opening") }
+        if !allowModel { return engineChoice("short on time") }
         if modelCalls >= settings.maxModelCalls { return engineChoice("model budget for this game used up") }
         if modelCalls >= Self.pacedBudget(settings.maxModelCalls, ply: game.moves.count) {
             return engineChoice("saving model calls for later")

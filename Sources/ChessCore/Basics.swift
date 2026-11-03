@@ -105,4 +105,6 @@ public enum GameResult: String, Codable, Sendable {
 
 public enum GameEnd: String, Codable, Sendable {
     case checkmate, stalemate, fiftyMoveRule, threefoldRepetition, insufficientMaterial, resignation
+    /// Ends reported by an online server, never set by `Game` itself.
+    case timeout, drawAgreed, aborted
 }

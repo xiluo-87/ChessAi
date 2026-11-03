@@ -57,7 +57,7 @@ struct BoardView: View {
     /// Display index (row-major from the top-left) to board square, flipped when the human plays Black.
     private func square(at index: Int) -> Square {
         let row = index / 8, column = index % 8
-        return model.humanColor == .white
+        return model.bottomColor == .white
             ? Squares.make(file: column, rank: 7 - row)
             : Squares.make(file: 7 - column, rank: row)
     }
@@ -94,8 +94,8 @@ struct BoardView: View {
 
     @ViewBuilder
     private func coordinates(_ square: Square, cell: CGFloat, isLight: Bool) -> some View {
-        let bottomRank = model.humanColor == .white ? 0 : 7
-        let leftFile = model.humanColor == .white ? 0 : 7
+        let bottomRank = model.bottomColor == .white ? 0 : 7
+        let leftFile = model.bottomColor == .white ? 0 : 7
         let color = (isLight ? dark : light).opacity(0.9)
         ZStack {
             if Squares.rank(square) == bottomRank {

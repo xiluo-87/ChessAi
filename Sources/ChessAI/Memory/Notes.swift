@@ -84,19 +84,24 @@ public struct PersonaProfile: Codable, Sendable, Hashable, Identifiable {
 public enum OpponentID: Codable, Sendable, Hashable {
     case human(String)
     case model(String)
+    /// An opponent on Lichess, by username: a human or a bot elsewhere, never the local player's notes.
+    case lichess(String)
 
     public var key: String {
         switch self {
         case .human(let name): "human-\(Self.slug(name))"
         case .model(let name): "model-\(Self.slug(name))"
+        case .lichess(let name): "lichess-\(Self.slug(name))"
         }
     }
 
     public var isHuman: Bool { if case .human = self { true } else { false } }
+    public var isLichess: Bool { if case .lichess = self { true } else { false } }
 
     public var displayName: String {
         switch self {
         case .human(let name), .model(let name): name
+        case .lichess(let name): "\(name) (Lichess)"
         }
     }
 

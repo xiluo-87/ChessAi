@@ -33,6 +33,20 @@ swift run chessai-cli selfplay --plies 50 --strong sonnet --cheap haiku
 After the game, Stockfish reviews every move locally (free), and the **cheap** model makes two calls: it rewrites the
 persona's notes with a game summary, and it rewrites the notes on the opponent.
 
+## Lichess (PvP)
+
+The persona plays on Lichess as a **BOT account** in the same combined way: Stockfish's candidates, chosen by the
+strong model.
+
+1. Create a separate Lichess account that has never played a game.
+2. Create an API token with the `bot:play` scope, and paste it into the **Lichess** tab. It is stored in the Keychain.
+3. Upgrade the account to BOT from the tab. This is permanent.
+4. Go online. The bot accepts challenges matching your settings (rapid, classical and correspondence by default),
+   or you can challenge a user or Lichess AI yourself.
+
+With under 90 s on its clock it skips the model and plays Stockfish's top line. Every finished game is reviewed into
+memory, with a separate scouting file per Lichess opponent (`lichess-<name>`). Your own notes are never loaded.
+
 ## Memory
 
 Stored in `~/Library/Application Support/ChessAi/`: `personas/<id>/profile.json`,

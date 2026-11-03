@@ -89,7 +89,7 @@ public struct MemoryUpdater: Sendable {
 }
 
 extension Record {
-    mutating func add(_ result: GameResult, as color: PieceColor) {
+    public mutating func add(_ result: GameResult, as color: PieceColor) {
         switch result {
         case .draw: draws += 1
         case .whiteWins: if color == .white { wins += 1 } else { losses += 1 }

@@ -69,14 +69,16 @@ struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var tab = Tab.game
 
-    enum Tab: String, CaseIterable { case game = "Game", memory = "Memory", models = "Models" }
+    enum Tab: String, CaseIterable { case game = "Game", lichess = "Lichess", memory = "Memory", models = "Models" }
 
     var body: some View {
         HSplitView {
             VStack(spacing: 12) {
+                PlayerBar(lichess: model.lichess, top: true)
                 BoardView()
                     .aspectRatio(1, contentMode: .fit)
                     .frame(minWidth: 480, minHeight: 480)
+                PlayerBar(lichess: model.lichess, top: false)
                 HStack {
                     Text(model.status).font(.callout).foregroundStyle(.secondary)
                     if model.phase == .personaThinking || model.phase == .reviewing { ProgressView().controlSize(.small) }
@@ -96,6 +98,7 @@ struct ContentView: View {
                 Divider()
                 switch tab {
                 case .game: GamePanel()
+                case .lichess: LichessPanel()
                 case .memory: MemoryPanel()
                 case .models: ScrollView { ModelPickerForm().padding() }
                 }

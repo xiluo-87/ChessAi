@@ -30,6 +30,8 @@ enum Phase: Equatable {
     case personaThinking
     case reviewing
     case finished
+    /// A Lichess game is on the board: nobody here moves on it.
+    case watching
 }
 
 @MainActor
@@ -45,6 +47,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var gameCalls: [CallRecord] = []
     @Published private(set) var lastCandidates: [Candidate] = []
     @Published var status = "Starting Stockfish…"
+    /// The persona's score per arena, counted from the saved games.
+    @Published private(set) var offlineScore = Record()
+    @Published private(set) var lichessScore = Record()
     /// Published so the New Game buttons enable once the engine is up.
     @Published private(set) var engineReady = false
     @Published var error: String?
@@ -66,12 +71,28 @@ final class AppModel: ObservableObject {
         store.migrateLegacyPersona()
         if store.persona(settings.personaID) == nil { try? store.save(MemoryStore.defaultPersona) }
         persona = store.persona(settings.personaID) ?? MemoryStore.defaultPersona
+        refreshScores()
         Task { await startEngine() }
     }
 
+    func refreshScores() {
+        var offline = Record(), online = Record()
+        for game in store.games(persona: persona.id) {
+            if game.opponent.isLichess { online.add(game.result, as: game.personaColor) }
+            else if game.opponent.isHuman { offline.add(game.result, as: game.personaColor) }
+        }
+        offlineScore = offline
+        lichessScore = online
+    }
+
     var personaColor: PieceColor { humanColor.opposite }
-    /// The persona's reasons and candidates are shown in PvP only; in single player you see just the moves.
-    var showThoughts: Bool { context?.mode == .pvp }
+    /// The persona's reasons and candidates are shown in PvP and engine matches; in single player only the moves.
+    var showThoughts: Bool { boardIsExternal || engineMatch != nil || context?.mode == .pvp }
+    /// The persona's side on the board shown: in watched games (Lichess, engine match) it sits at the bottom.
+    var personaSide: PieceColor { boardIsExternal ? humanColor : personaColor }
+    var bottomColor: PieceColor { boardIsExternal || engineMatch != nil ? personaSide : humanColor }
+    var engineInstance: StockfishEngine? { engine }
+    private(set) lazy var lichess = LichessController(app: self)
 
     private func startEngine() async {
         do {
@@ -104,7 +125,10 @@ final class AppModel: ObservableObject {
             self.context = context
             self.dossier = dossier
             picker = MovePicker(router: router, engine: engine, settings: settings.play, persona: persona, dossier: dossier, context: context)
+            stopEngineMatch()
+            engineMatch = nil
             humanColor = color
+            boardIsExternal = false
             game = Game()
             notes = []
             lastCandidates = []
@@ -191,6 +215,7 @@ final class AppModel: ObservableObject {
             record.calls = await router.records(since: gameStart).count
             try store.save(record)
             status = "Game over (\(game.result.rawValue)). \(persona.name) updated its notes."
+            refreshScores()
         } catch {
             try? store.save(record)
             self.error = "The review could not finish: \(error.localizedDescription). The game was saved."
@@ -216,6 +241,151 @@ final class AppModel: ObservableObject {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         return formatter.string(from: Date())
+    }
+
+    // MARK: Engine match
+
+    /// A watched game at equal engine strength: plain Stockfish plays its best move at depth N; the persona gets
+    /// Stockfish's candidates at the same depth N and its model picks among them. Nothing is counted, reviewed or stored.
+    struct EngineMatch: Equatable {
+        var label: String
+    }
+
+    @Published private(set) var engineMatch: EngineMatch?
+    private var opponentEngine: StockfishEngine?
+    private var matchTask: Task<Void, Never>?
+
+    func startEngineMatch(personaPlays color: PieceColor, depth: Int) {
+        guard let engine, phase != .watching else { return }
+        stopEngineMatch()
+        let label = "Stockfish depth \(depth)"
+        do {
+            let context = try MatchContext(mode: .pvp, personaID: persona.id, opponent: .model(label), personaColor: color)
+            var play = settings.play
+            play.engineDepth = depth
+            // Reads its memory like any game (own notes, and its notes on this opponent if it has any); it writes nothing.
+            let dossier = store.dossier(context.opponent, persona: persona.id, in: context)
+            let picker = MovePicker(router: router, engine: engine, settings: play, persona: persona, dossier: dossier, context: context)
+            self.context = nil
+            self.picker = nil
+            humanColor = color.opposite  // the engine's side; personaColor is then the persona's
+            boardIsExternal = false
+            engineMatch = EngineMatch(label: label)
+            game = Game()
+            notes = []
+            lastCandidates = []
+            lastRecord = nil
+            gameStart = Date()
+            gameCalls = []
+            phase = .watching
+            status = "\(persona.name) vs \(label)"
+            matchTask = Task { await runEngineMatch(picker: picker, persona: color, depth: depth, label: label) }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func stopEngineMatch() {
+        guard matchTask != nil || engineMatch != nil else { return }
+        matchTask?.cancel()
+        matchTask = nil
+        if phase == .watching, engineMatch != nil {
+            phase = .finished
+            status = "Match stopped."
+        }
+    }
+
+    private func runEngineMatch(picker: MovePicker, persona color: PieceColor, depth: Int, label: String) async {
+        do {
+            let opponent: StockfishEngine
+            if let existing = opponentEngine {
+                opponent = existing
+            } else {
+                // The same threads and hash as the persona's engine, so equal depth means equal strength.
+                opponent = try StockfishEngine()
+                try await opponent.start()
+                opponentEngine = opponent
+            }
+            try await opponent.newGame()
+
+            while !Task.isCancelled, game.result == .ongoing, game.moves.count < 400 {
+                let snapshot = game
+                if snapshot.current.sideToMove == color {
+                    status = "\(persona.name) is thinking…"
+                    let decision = try await picker.choose(in: snapshot)
+                    guard !Task.isCancelled, game.moves == snapshot.moves else { return }
+                    notes.append(MoveNote(
+                        ply: notes.count, san: snapshot.current.san(for: decision.move), byPersona: true,
+                        source: decision.source, reason: decision.reason, evalBefore: decision.evalWhite))
+                    game.play(decision.move)
+                    lastCandidates = decision.candidates
+                    gameCalls = await router.records(since: gameStart)
+                } else {
+                    status = "\(label) is thinking…"
+                    guard let uci = try await opponent.bestMove(fen: snapshot.current.fen, limits: EngineLimits(depth: depth)),
+                          let move = Move(uci: uci), snapshot.current.isLegal(move) else { break }
+                    // A short pause so the engine's instant replies stay watchable.
+                    try await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled, game.moves == snapshot.moves else { return }
+                    notes.append(MoveNote(ply: notes.count, san: snapshot.current.san(for: move), byPersona: false))
+                    game.play(move)
+                }
+            }
+            guard !Task.isCancelled else { return }
+            phase = .finished
+            let outcome = game.end.map { " by \($0.rawValue)" } ?? (game.moves.count >= 400 ? " (move limit)" : "")
+            status = "\(persona.name) vs \(label): \(game.result.rawValue)\(outcome). Not counted or reviewed."
+        } catch is CancellationError {
+        } catch {
+            self.error = "The engine match stopped: \(error.localizedDescription)"
+            phase = .finished
+        }
+        matchTask = nil
+    }
+
+    // MARK: Lichess
+
+    /// Mirrors a Lichess game onto the board (the persona's side at the bottom).
+    /// The board holds a Lichess game (live or just finished) rather than a local one.
+    @Published private(set) var boardIsExternal = false
+
+    func showExternal(game: Game, notes: [MoveNote], personaColor: PieceColor, status: String) {
+        stopEngineMatch()
+        engineMatch = nil
+        boardIsExternal = true
+        if phase != .watching {
+            context = nil
+            picker = nil
+            lastRecord = nil
+            lastCandidates = []
+            gameCalls = []
+        }
+        self.game = game
+        self.notes = notes
+        humanColor = personaColor  // board orientation only: the persona sits at the bottom
+        phase = .watching
+        self.status = status
+    }
+
+    func externalReviewing(result: GameResult) {
+        phase = .reviewing
+        status = "Lichess game over (\(result.rawValue)). \(persona.name) is reviewing the game and updating its notes…"
+    }
+
+    func endExternal(record: GameRecord?) {
+        if phase == .watching || phase == .reviewing { phase = .finished }
+        if let record, record.review == nil {
+            status = "Lichess game over (\(record.result.rawValue)): too short to review, so the notes stay as they were."
+        } else if record == nil {
+            status = "Lichess game aborted."
+        }
+    }
+
+    func personaUpdated(_ persona: PersonaProfile) { self.persona = persona }
+
+    func showRecord(_ record: GameRecord) {
+        lastRecord = record
+        status = "Lichess game over (\(record.result.rawValue)). \(persona.name) updated its notes."
     }
 
     // MARK: Memory
