@@ -1,0 +1,78 @@
+import XCTest
+@testable import ChessEngine
+
+final class StockfishEngineTests: XCTestCase {
+    private func makeEngine() async throws -> StockfishEngine {
+        guard StockfishEngine.locate() != nil else { throw XCTSkip("stockfish not installed") }
+        let e = try StockfishEngine()
+        try await e.start()
+        return e
+    }
+
+    func testScoreDescription() {
+        XCTAssertEqual(EngineScore(centipawns: 35, mate: nil).description, "+0.35")
+        XCTAssertEqual(EngineScore(centipawns: -120, mate: nil).description, "-1.20")
+        XCTAssertEqual(EngineScore(centipawns: 0, mate: nil).description, "+0.00")
+        XCTAssertEqual(EngineScore(centipawns: nil, mate: 3).description, "#3")
+        XCTAssertEqual(EngineScore(centipawns: nil, mate: -2).description, "#-2")
+    }
+
+    func testScoreFlipAndNormalized() {
+        XCTAssertEqual(EngineScore(centipawns: 50, mate: nil).flipped(), EngineScore(centipawns: -50, mate: nil))
+        XCTAssertEqual(EngineScore(centipawns: nil, mate: 2).flipped(), EngineScore(centipawns: nil, mate: -2))
+        XCTAssertEqual(EngineScore(centipawns: 77, mate: nil).normalized, 77)
+        XCTAssertEqual(EngineScore(centipawns: nil, mate: 3).normalized, 99_700)
+        XCTAssertEqual(EngineScore(centipawns: nil, mate: -1).normalized, -99_900)
+    }
+
+    func testParseInfo() {
+        let l = "info depth 10 seldepth 12 multipv 2 score cp 31 nodes 1 pv e2e4 e7e5"
+        let (k, line) = StockfishEngine.parseInfo(l)!
+        XCTAssertEqual(k, 2)
+        XCTAssertEqual(line.move, "e2e4")
+        XCTAssertEqual(line.pv.count, 2)
+        XCTAssertNil(StockfishEngine.parseInfo("info depth 5 score cp 10 lowerbound pv e2e4"))
+        XCTAssertNil(StockfishEngine.parseInfo("info depth 5 currmove e2e4"))
+    }
+
+    func testAnalyseStartPositionMultiPV() async throws {
+        let e = try await makeEngine()
+        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        let lines = try await e.analyse(fen: fen, multiPV: 3, limits: EngineLimits(depth: 10))
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertEqual(Set(lines.map(\.move)).count, 3)
+        for l in lines {
+            XCTAssertTrue(l.move.count == 4 || l.move.count == 5)
+            XCTAssertNotNil(l.score.centipawns)
+            XCTAssertFalse(l.pv.isEmpty)
+        }
+        await e.shutdown()
+    }
+
+    func testMateInOne() async throws {
+        let e = try await makeEngine()
+        let fen = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1"
+        let best = try await e.bestMove(fen: fen, limits: EngineLimits(depth: 8))
+        XCTAssertEqual(best, "d1d8")
+        let lines = try await e.analyse(fen: fen, multiPV: 1, limits: EngineLimits(depth: 8))
+        XCTAssertEqual(lines.first?.score.mate, 1)
+        await e.shutdown()
+    }
+
+    func testNoLegalMove() async throws {
+        let e = try await makeEngine()
+        let best = try await e.bestMove(fen: "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1", limits: EngineLimits(depth: 5))
+        XCTAssertNil(best)
+        await e.shutdown()
+    }
+
+    func testShutdownTwiceAndTerminated() async throws {
+        let e = try await makeEngine()
+        await e.shutdown()
+        await e.shutdown()
+        do {
+            _ = try await e.bestMove(fen: "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1", limits: EngineLimits(depth: 3))
+            XCTFail("expected terminated")
+        } catch EngineError.terminated {}
+    }
+}
