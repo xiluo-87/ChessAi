@@ -223,8 +223,9 @@ swift run chessai-cli selfplay --plies 50 --strong sonnet --cheap haiku
 
 | Target | Contents |
 |---|---|
-| `ChessCore` | Rules, legal move generation, SAN, FEN, PGN (perft-tested) |
+| `ChessCore` | Rules, legal move generation, SAN, FEN, PGN (perft-tested); the `AnalysisEngine` protocol |
 | `ChessEngine` | Stockfish over UCI, with serialized commands |
+| `ChessSearch` | `SearchEngine`, an in-process alpha-beta engine for where Stockfish cannot run (iOS); not used by the app yet |
 | `ChessAI` | Model CLI adapters, router and cost ledger, memory store, move picker, game review, memory updater, Lichess client and bot |
 | `ChessApp` | The SwiftUI app |
 | `ChessCLI` | Headless self-play |
