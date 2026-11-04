@@ -29,8 +29,9 @@ cd ChessAi
 swift run ChessAi
 ```
 
-Choose **New as White** or **New as Black** (⌘N / ⇧⌘N), then drag or click your pieces. Moves are listed as you play.
-When the game ends, the persona's review and summary appear in the **Game** tab, and its updated notes in **Memory**.
+Start from the toolbar's **New Game** menu (⌘N as White, ⇧⌘N as Black), then drag or click your pieces. Moves are
+listed as you play. When the game ends, the persona's review and summary appear under **Game → Review**, and its
+updated notes in **Memory**. Settings that are set once (models, strength, Lichess account) are in **Settings** (⌘,).
 
 ## Modes
 
@@ -38,7 +39,7 @@ When the game ends, the persona's review and summary appear in the **Game** tab,
 |---|---|---|
 | **You vs JSON Bourne** | Game tab | Reviewed; updates its own notes and its notes on you; counts in "vs you" |
 | **Lichess bot** | Lichess tab | Reviewed; updates its own notes and a file per Lichess opponent; counts in "Lichess" |
-| **JSON Bourne vs Stockfish** | Game tab | Watch only: reads its notes, writes nothing, not counted |
+| **JSON Bourne vs Stockfish** | New Game → Watch vs Stockfish (⌥⌘N) | Watch only: reads its notes, writes nothing, not counted |
 
 In single player you see only the moves. In Lichess games and Stockfish matches, the persona's reason for each of its
 moves is shown in full.
@@ -56,7 +57,7 @@ Cheapest source first:
 The persona's prompt stays identical for a whole game, so the provider can cache it. Model calls are capped per game
 and spread out so the middlegame keeps some. If a call fails, it plays the engine's best move instead of stalling.
 
-**Strength** is the candidate search depth (Models tab): about 6–8 plays at club level, 14 is very strong. A wider
+**Strength** is the candidate search depth (Settings → General): about 6–8 plays at club level, 14 is very strong. A wider
 candidate margin gives the persona more room for style at some cost in strength.
 
 ## What it learns
@@ -85,14 +86,14 @@ read or write them. `MatchContext` enforces this, and tests check it down to the
 
 ## Models and cost
 
-The **Models** tab picks a backend, model and reasoning effort for each tier:
+**Settings → Models** picks a backend, model and reasoning effort for each tier:
 
 | Tier | Default | Used for |
 |---|---|---|
 | Strong | Claude Opus, low effort | choosing among candidates during a game |
 | Cheap | Claude Haiku | the two post-game calls |
 
-OpenCode's model list is read live from `opencode models`; any other model id can be typed in. The Game tab shows
+OpenCode's model list is read live from `opencode models`; any other model id can be typed in. The Game panel shows
 each game's calls, tokens and list price. A test game with Sonnet as the strong model used 8 strong and 2 cheap calls,
 about $0.05 at list price, which is $0 on a Claude plan login. With the strong-model budget at 0, the persona plays
 engine-only and free.
@@ -114,7 +115,7 @@ or chosen at runtime:
 | Claude and Codex models | A fixed list, plus any id you type in |
 
 **Without changing code:** use OpenCode. Configure the provider or local model there, then pick OpenCode as the backend
-in the **Models** tab. For a Claude or Codex model missing from the list, type its id into the picker.
+in **Settings → Models**. For a Claude or Codex model missing from the list, type its id into the picker.
 
 **Binary in another folder:** add the folder to your `PATH`, or to `extraFolders` in
 [`CLIRunner.swift`](Sources/ChessAI/Models/CLIRunner.swift). An app started from Finder gets a minimal `PATH`, so
@@ -130,7 +131,7 @@ in the **Models** tab. For a Claude or Codex model missing from the list, type i
 | [`CLIBackendTests.swift`](Tests/ChessAITests/CLIBackendTests.swift) | Test its arguments and environment, as the other adapters do |
 
 The compiler flags each `switch` you missed, but not `efforts`, which is a dictionary. The picker and the router read
-`BackendKind.allCases`, so the new CLI appears in the **Models** tab with no UI work.
+`BackendKind.allCases`, so the new CLI appears in **Settings → Models** with no UI work.
 
 An adapter gets a system prompt, a user prompt, a JSON schema and a timeout, and returns the answer as decoded JSON.
 This one suits a CLI that reads its prompt on stdin and cannot enforce a schema:
@@ -178,19 +179,21 @@ combined way. Engine use is allowed because the account is marked as a bot.
 
 1. Register a separate Lichess account. Do not play any game with it.
 2. Create a [personal API token](https://lichess.org/account/oauth/token/create?scopes[]=bot:play&description=ChessAi)
-   with only the `bot:play` scope, and paste it into **Lichess → Bot**. It is stored in your macOS Keychain.
-3. **Upgrade to BOT** from the same tab. This is permanent.
-4. **Go online.** The bot accepts challenges matching your settings: rapid, classical and correspondence by default;
-   rated or casual; bots and humans.
-5. Challenge someone yourself from **Play**, or pick a bot from **Lobby**, which lists the bots online now with their
-   rating for your clock. Bots that have hit Lichess's 100 bot games a day, or recently declined, are hidden for a while.
+   with only the `bot:play` scope, and paste it into **Settings → Lichess**. It is stored in your macOS Keychain.
+3. **Upgrade to BOT** there. This is permanent.
+4. Switch the **Lichess** panel to **Online**. The bot accepts challenges matching Settings → Lichess: rapid,
+   classical and correspondence by default; rated or casual; bots and humans.
+5. Challenge someone yourself from **Play**, or pick a bot from **Lobby**: the bots online now, highest rated first
+   for your clock. **Challenge** opens a window for the clock (blitz and rapid presets) and rated, and the row shows a
+   spinner until the bot answers. Unanswered challenges are withdrawn after 10 seconds. Bots that have hit Lichess's
+   100 bot games a day, or declined in the last hour, stay listed but greyed out.
 
 With under 90 seconds on its clock the persona skips the model and plays Stockfish's top move. Dropped game streams
 reconnect without losing the game. Only rated games change a rating; Lichess shows a placeholder until then.
 
 ## JSON Bourne vs Stockfish
 
-A watch-only match at **equal strength**: Stockfish plays its best move at depth N; the persona gets Stockfish's
+Start it from **New Game → Watch vs Stockfish** (⌥⌘N); the depth and side are in Settings → Stockfish Match. A watch-only match at **equal strength**: Stockfish plays its best move at depth N; the persona gets Stockfish's
 candidates at the same depth N and its model picks one. It answers one question: do the model's choices among
 near-equal moves beat Stockfish's own top pick? Expect many draws.
 
@@ -203,8 +206,9 @@ Everything stays on your Mac:
 | Persona, notes, opponent files, games (JSON) | `~/Library/Application Support/ChessAi/` |
 | Settings | the app's UserDefaults |
 | Lichess token | macOS Keychain, service `ChessAi.lichess` |
+| Training data: every finished game's quiet positions and result | `~/Library/Application Support/ChessAi/training/games.txt` |
 
-**Memory → Reset persona memory** clears the persona's own notes.
+**Settings → General → Reset** clears the persona's own notes. Saving training data can be turned off there too.
 
 ## Development
 
@@ -238,8 +242,10 @@ round records the positions it was fitted to and how it played against the round
 
 ```bash
 swift run -c release chessai-train selfplay --games 5000 --depth 5 --weights round:1 --out selfplay.txt
+# optional: the app's own games, saved after each one (see Data)
+cp ~/Library/Application\ Support/ChessAi/training/games.txt app-games.txt
 swift run -c release chessai-train pgn games.pgn --out pgn.txt          # optional: any PGN with results
-swift run -c release chessai-train tune selfplay.txt pgn.txt --from round:1 --out round-2.json
+swift run -c release chessai-train tune selfplay.txt pgn.txt app-games.txt --from round:1 --out round-2.json
 swift run -c release chessai-train compare round-2.json --against round:1 --games 400 --depth 5 --record
 ```
 

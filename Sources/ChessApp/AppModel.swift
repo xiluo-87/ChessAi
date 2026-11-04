@@ -3,6 +3,7 @@ import SwiftUI
 import ChessCore
 import ChessEngine
 import ChessAI
+import ChessSearch
 
 /// Settings kept in UserDefaults as one JSON value.
 struct AppSettings: Codable, Equatable {
@@ -22,6 +23,17 @@ struct AppSettings: Codable, Equatable {
     func save() {
         if let data = try? JSONEncoder().encode(self) { UserDefaults.standard.set(data, forKey: Self.key) }
     }
+}
+
+/// Settings ▸ Stockfish Match keeps these in UserDefaults; the New Game menu starts the match with them.
+enum MatchDefaults {
+    static let depthKey = "engineMatch.depth"
+    static let whiteKey = "engineMatch.white"
+}
+
+/// Settings ▸ General: whether finished games are saved as training data for ChessSearch's evaluation.
+enum TrainingDefaults {
+    static let saveGamesKey = "training.saveGames"
 }
 
 enum Phase: Equatable {
@@ -203,6 +215,7 @@ final class AppModel: ObservableObject {
             id: gameID, date: gameStart, personaID: persona.id, opponent: context.opponent,
             personaColor: personaColor, result: game.result, end: game.end,
             pgn: game.pgn(tags: pgnTags()), notes: notes, usage: modelUsage, calls: calls)
+        saveTrainingData(fen: game.startPosition.fen, moves: game.moves.map(\.uci), result: game.result)
         do {
             let review = try await GameReviewer(engine: engine).review(game, personaColor: personaColor)
             record.review = review
@@ -295,6 +308,20 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// With the side and depth from Settings ▸ Stockfish Match.
+    func startEngineMatch() {
+        let defaults = UserDefaults.standard
+        let white = defaults.object(forKey: MatchDefaults.whiteKey) as? Bool ?? true
+        startEngineMatch(personaPlays: white ? .white : .black, depth: defaults.object(forKey: MatchDefaults.depthKey) as? Int ?? 10)
+    }
+
+    // MARK: What the toolbar and menus may do now
+
+    var canStartGame: Bool { engineReady && !(phase == .watching && engineMatch == nil) }
+    var canStartEngineMatch: Bool { engineReady && phase != .watching && phase != .personaThinking }
+    var canResign: Bool { phase == .playing || phase == .personaThinking }
+    var engineMatchRunning: Bool { engineMatch != nil && phase == .watching }
+
     private func runEngineMatch(picker: MovePicker, persona color: PieceColor, depth: Int, label: String) async {
         do {
             let opponent: StockfishEngine
@@ -333,6 +360,7 @@ final class AppModel: ObservableObject {
             }
             guard !Task.isCancelled else { return }
             phase = .finished
+            saveTrainingData(fen: game.startPosition.fen, moves: game.moves.map(\.uci), result: game.result)
             let outcome = game.end.map { " by \($0.rawValue)" } ?? (game.moves.count >= 400 ? " (move limit)" : "")
             status = "\(persona.name) vs \(label): \(game.result.rawValue)\(outcome). Not counted or reviewed."
         } catch is CancellationError {
@@ -395,6 +423,31 @@ final class AppModel: ObservableObject {
         refreshCalls()
         lastRecord = record
         status = "Lichess game over (\(record.result.rawValue)). \(persona.name) updated its notes."
+    }
+
+    // MARK: Training data
+
+    /// Finished games' quiet positions and results, for `chessai-train tune`.
+    var trainingFile: URL { store.root.appendingPathComponent("training/games.txt") }
+
+    /// Appends a finished game's positions to `trainingFile` (unless turned off in Settings); unfinished games add
+    /// nothing. The weights change only when a new round is tuned from the file and kept.
+    func saveTrainingData(fen: String, moves: [String], result: GameResult) {
+        saveTraining(Training.positions(fen: fen, moves: moves, result: result))
+    }
+
+    /// For Lichess games, whose record knows endings (time, resignation) the moves alone do not.
+    func saveTrainingData(pgn: String, result: GameResult) {
+        saveTraining(Training.positions(fromPGN: pgn, result: result))
+    }
+
+    private func saveTraining(_ positions: [TrainingPosition]) {
+        guard UserDefaults.standard.object(forKey: TrainingDefaults.saveGamesKey) as? Bool ?? true, !positions.isEmpty else { return }
+        do {
+            try Training.append(positions, to: trainingFile)
+        } catch {
+            status += " (training data not saved: \(error.localizedDescription))"
+        }
     }
 
     // MARK: Memory

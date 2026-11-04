@@ -18,7 +18,7 @@ let package = Package(
         .target(name: "ChessSearch", dependencies: ["ChessCore"], resources: [.copy("Resources/Weights")]),
         // Model adapters, persona memory, move picking and post-game analysis.
         .target(name: "ChessAI", dependencies: ["ChessCore", "ChessEngine"]),
-        .executableTarget(name: "ChessApp", dependencies: ["ChessCore", "ChessEngine", "ChessAI"]),
+        .executableTarget(name: "ChessApp", dependencies: ["ChessCore", "ChessEngine", "ChessAI", "ChessSearch"]),
         // Headless runs: self-play against a weakened engine, for live smoke tests and later AvA.
         .executableTarget(name: "ChessCLI", dependencies: ["ChessCore", "ChessEngine", "ChessAI"]),
         // Tunes ChessSearch's evaluation: self-play or PGN positions, fitting, and matches between weights.
