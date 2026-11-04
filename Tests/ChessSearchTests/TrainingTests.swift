@@ -139,6 +139,38 @@ final class TrainingTests: XCTestCase {
         XCTAssertTrue(first.contains { $0.fen.hasPrefix("r1bq1rk1/2pnbppp/p2p1n2/1p2p3/3PP3/1BP2N1P/PP3PP1/RNBQR1K1 w") })
     }
 
+    /// What the app saves after each game: the same positions from the moves as from the game's PGN.
+    func testPositionsOfOneFinishedGame() throws {
+        var rng = SplitMix64(seed: 21)
+        var game = Game()
+        while game.moves.count < 60, game.result == .ongoing {
+            let legal = game.current.legalMoves()
+            game.play(legal[Int(rng.next() % UInt64(legal.count))])
+        }
+        let moves = game.moves.map(\.uci)
+        let fromMoves = Training.positions(fen: Position.start.fen, moves: moves, result: .blackWins)
+        XCTAssertFalse(fromMoves.isEmpty)
+        XCTAssertTrue(fromMoves.allSatisfy { $0.result == 0 })
+        let fromPGN = Training.positions(fromPGN: game.pgn(tags: []), result: .blackWins)
+        XCTAssertEqual(fromMoves, fromPGN)
+        XCTAssertTrue(Training.positions(fen: Position.start.fen, moves: moves, result: .ongoing).isEmpty)
+        // A move that does not read ends the game there.
+        let cut = Training.positions(fen: Position.start.fen, moves: Array(moves.prefix(30)) + ["e1e8"] + moves.dropFirst(31), result: .draw)
+        XCTAssertEqual(cut, Training.positions(fen: Position.start.fen, moves: Array(moves.prefix(30)), result: .draw))
+    }
+
+    func testAppendCreatesThenAdds() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("training-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("games.txt")
+        let a = [TrainingPosition(fen: Position.start.fen, result: 1)]
+        let b = [TrainingPosition(fen: "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1", result: 0.5)]
+        try Training.append(a, to: url)
+        try Training.append([], to: url)
+        try Training.append(b, to: url)
+        XCTAssertEqual(try Training.read(from: url), a + b)
+    }
+
     func testFileRoundTrip() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("positions-\(UUID()).txt")
         defer { try? FileManager.default.removeItem(at: url) }

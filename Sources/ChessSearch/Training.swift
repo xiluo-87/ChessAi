@@ -52,6 +52,22 @@ public enum Training {
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Adds to the end of the file, creating it (and its folder) if needed.
+    public static func append(_ positions: [TrainingPosition], to url: URL) throws {
+        guard !positions.isEmpty else { return }
+        let data = Data(positions.map { "\($0.fen) ; \($0.result)\n" }.joined().utf8)
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: url.path) {
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url)
+            return
+        }
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: data)
+    }
+
     public static func read(from url: URL) throws -> [TrainingPosition] {
         try String(contentsOf: url, encoding: .utf8).split(separator: "\n").compactMap { line in
             let parts = line.split(separator: ";")
@@ -157,29 +173,74 @@ public enum Training {
         return (0.5, positions)
     }
 
+    // MARK: Finished games
+
+    /// The result as training wants it: 1 for a White win, 0.5 for a draw, 0 for a Black win; nil while unfinished.
+    public static func value(of result: GameResult) -> Double? {
+        switch result {
+        case .whiteWins: 1
+        case .draw: 0.5
+        case .blackWins: 0
+        case .ongoing: nil
+        }
+    }
+
+    /// Quiet positions of one finished game (`moves` in UCI from `fen`), from ply `skipPlies` on.
+    public static func positions(fen: String, moves: [String], result: GameResult, skipPlies: Int = 8) -> [TrainingPosition] {
+        guard let value = value(of: result) else { return [] }
+        return collect(fen: fen, plies: moves.count, result: value, skipPlies: skipPlies) { board, i in
+            guard let m = Move(uci: moves[i]) else { return nil }
+            return legalMoves(board).first {
+                $0.from == m.from && $0.to == m.to && $0.promotion == (m.promotion.map(Board.code(of:)) ?? 0)
+            }
+        }
+    }
+
     // MARK: PGN
 
     /// Quiet positions from every game in `text` with a result, from ply `skipPlies` on (openings are mostly book).
-    public static func positions(fromPGN text: String, skipPlies: Int = 8) -> [TrainingPosition] {
+    /// `result`, when given, overrides the games' own: a record may know an ending (a loss on time) its moves do not.
+    public static func positions(fromPGN text: String, skipPlies: Int = 8, result: GameResult? = nil) -> [TrainingPosition] {
         var out: [TrainingPosition] = []
         for game in splitPGN(text) {
             var tokens = movetextTokens(game.movetext)
-            var result = resultValue(game.tags["Result"] ?? "")
-            if let last = tokens.last, let r = resultValue(last) { result = result ?? r }
+            var value = result.flatMap(Self.value(of:)) ?? resultValue(game.tags["Result"] ?? "")
+            if let last = tokens.last, let r = resultValue(last) { value = value ?? r }
             tokens.removeAll { resultValue($0) != nil || $0 == "*" }
-            guard let result,
-                  let board = try? Board(fen: game.tags["FEN"] ?? Position.start.fen, searchPlies: tokens.count + maxPly + 16)
-            else { continue }
-            let searcher = Searcher(board: board, tt: TranspositionTable(megabytes: 1), stop: StopFlag(), deadline: nil)
-            for (ply, san) in tokens.enumerated() {
-                guard let move = move(fromSAN: san, on: board) else { break }  // a broken game: keep what came before
-                board.make(move)
-                if ply + 1 >= skipPlies && !board.inCheck && searcher.quiescenceScore() == board.evaluate() {
-                    out.append(TrainingPosition(fen: board.fen, result: result))
-                }
+            guard let value else { continue }
+            out += collect(fen: game.tags["FEN"] ?? Position.start.fen, plies: tokens.count, result: value, skipPlies: skipPlies) {
+                board, i in move(fromSAN: tokens[i], on: board)
             }
         }
         return out
+    }
+
+    /// Plays a game's moves on a search board, keeping each quiet position from ply `skipPlies` on. A move that does
+    /// not read (a broken game) ends it there, keeping what came before.
+    private static func collect(
+        fen: String, plies: Int, result: Double, skipPlies: Int, move: (Board, Int) -> PackedMove?
+    ) -> [TrainingPosition] {
+        guard let board = try? Board(fen: fen, searchPlies: plies + maxPly + 16) else { return [] }
+        let searcher = Searcher(board: board, tt: TranspositionTable(megabytes: 1), stop: StopFlag(), deadline: nil)
+        var out: [TrainingPosition] = []
+        for ply in 0..<plies {
+            guard let m = move(board, ply), board.make(m) else { break }
+            if ply + 1 >= skipPlies && !board.inCheck && searcher.quiescenceScore() == board.evaluate() {
+                out.append(TrainingPosition(fen: board.fen, result: result))
+            }
+        }
+        return out
+    }
+
+    private static func legalMoves(_ board: Board) -> [PackedMove] {
+        let buffer = UnsafeMutablePointer<PackedMove>.allocate(capacity: 256)
+        defer { buffer.deallocate() }
+        var legal: [PackedMove] = []
+        for i in 0..<board.generate(buffer, quiets: true) where board.make(buffer[i]) {
+            legal.append(buffer[i])
+            board.unmake()
+        }
+        return legal
     }
 
     static func resultValue(_ token: String) -> Double? {
@@ -242,13 +303,7 @@ public enum Training {
     /// Reads SAN on the search board, which is much faster than ChessCore's `move(fromSAN:)` for whole databases.
     static func move(fromSAN san: String, on board: Board) -> PackedMove? {
         var t = Array(san.filter { !"+#!?x".contains($0) }.replacingOccurrences(of: "0", with: "O"))
-        let buffer = UnsafeMutablePointer<PackedMove>.allocate(capacity: 256)
-        defer { buffer.deallocate() }
-        var legal: [PackedMove] = []
-        for i in 0..<board.generate(buffer, quiets: true) where board.make(buffer[i]) {
-            legal.append(buffer[i])
-            board.unmake()
-        }
+        let legal = legalMoves(board)
         let kingFrom = board.side == 0 ? 4 : 60
         if t.starts(with: Array("O-O-O")) || t.starts(with: Array("O-O")) {
             let to = kingFrom + (t.count >= 5 ? -2 : 2)
