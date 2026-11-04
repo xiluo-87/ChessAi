@@ -66,7 +66,8 @@ public struct LichessChallenge: Sendable, Hashable {
 public enum LichessEvent: Sendable, Hashable {
     case challenge(LichessChallenge)
     case challengeCanceled(String)
-    case challengeDeclined(String)
+    /// `reason` is Lichess's key for why (`tooFast`, `later`, `noBot`, …), when it sends one.
+    case challengeDeclined(String, reason: String?)
     case gameStart(String)
     case gameFinish(String)
     case other(String)

@@ -24,8 +24,8 @@ public enum LichessBotUpdate: Sendable {
     case position(id: String, game: Game, notes: [MoveNote], whiteMs: Int, blackMs: Int)
     /// The game is over and the persona is reviewing it into memory (takes ~20–30 s).
     case reviewing(id: String, result: GameResult)
-    /// A challenge the persona sent was declined.
-    case outgoingDeclined(challengeID: String)
+    /// A challenge the persona sent was declined; `reason` is Lichess's key for why, when it gives one.
+    case outgoingDeclined(challengeID: String, reason: String?)
     case gameFinished(id: String, record: GameRecord?, persona: PersonaProfile?)
     case error(String)
 }
@@ -126,8 +126,8 @@ public actor LichessBot {
                 await self?.playGame(id)
                 await self?.gameEnded(id)
             }
-        case .challengeDeclined(let id):
-            report(.outgoingDeclined(challengeID: id))
+        case .challengeDeclined(let id, let reason):
+            report(.outgoingDeclined(challengeID: id, reason: reason))
         default:
             break
         }

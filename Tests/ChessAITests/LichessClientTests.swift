@@ -86,7 +86,10 @@ final class LichessClientTests: XCTestCase {
 
     func testCancelDeclineAndGameEvents() throws {
         XCTAssertEqual(try LichessClient.parseEvent(#"{"type":"challengeCanceled","challenge":{"id":"x1"}}"#), .challengeCanceled("x1"))
-        XCTAssertEqual(try LichessClient.parseEvent(#"{"type":"challengeDeclined","challenge":{"id":"x2"}}"#), .challengeDeclined("x2"))
+        XCTAssertEqual(try LichessClient.parseEvent(#"{"type":"challengeDeclined","challenge":{"id":"x2"}}"#), .challengeDeclined("x2", reason: nil))
+        XCTAssertEqual(
+            try LichessClient.parseEvent(#"{"type":"challengeDeclined","challenge":{"id":"x3","declineReason":"This time control is too fast for me, please send a slower one.","declineReasonKey":"tooFast"}}"#),
+            .challengeDeclined("x3", reason: "tooFast"))
         XCTAssertEqual(try LichessClient.parseEvent(#"{"type":"gameStart","game":{"gameId":"abc12345","fullId":"abc12345xyz1","color":"white"}}"#), .gameStart("abc12345"))
         XCTAssertEqual(try LichessClient.parseEvent(#"{"type":"gameStart","game":{"id":"legacy01"}}"#), .gameStart("legacy01"))
         XCTAssertEqual(try LichessClient.parseEvent(#"{"type":"gameFinish","game":{"gameId":"abc12345"}}"#), .gameFinish("abc12345"))
@@ -176,6 +179,14 @@ final class LichessClientTests: XCTestCase {
         let id2 = try await makeClient().challenge(username: "someone", rated: true, clockLimit: 60, increment: 0)
         XCTAssertEqual(id2, "nested")
         XCTAssertTrue(LichessStubProtocol.captured!.body.contains("rated=true"))
+    }
+
+    func testCancelChallenge() async throws {
+        LichessStubProtocol.configure(body: #"{"ok":true}"#)
+        try await makeClient().cancelChallenge("ch9")
+        let c = try XCTUnwrap(LichessStubProtocol.captured)
+        XCTAssertEqual(c.method, "POST")
+        XCTAssertEqual(c.url?.path, "/api/challenge/ch9/cancel")
     }
 
     func testChallengeAI() async throws {
