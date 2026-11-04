@@ -270,7 +270,7 @@ final class LichessController: ObservableObject {
     }
 
     /// Lichess's speed for a clock: estimated duration = initial + 40 × increment.
-    static func speed(minutes: Int, increment: Int) -> String {
+    nonisolated static func speed(minutes: Int, increment: Int) -> String {
         switch minutes * 60 + 40 * increment {
         case ..<30: "ultraBullet"
         case ..<180: "bullet"
