@@ -88,9 +88,12 @@ struct TimeControlPicker: View {
     }
 
     private func presets(_ list: [TimeControl], _ selection: Binding<TimeControl>) -> some View {
-        // A row shows no segment selected while the clock is one of the other row's.
-        Picker("", selection: selection) {
-            ForEach(list) { Text($0.label).tag($0) }
+        // Nil, so no segment is selected, while the clock is one of the other row's (or not a preset at all).
+        let row = Binding<TimeControl?>(
+            get: { list.contains(selection.wrappedValue) ? selection.wrappedValue : nil },
+            set: { if let tc = $0 { selection.wrappedValue = tc } })
+        return Picker("", selection: row) {
+            ForEach(list) { Text($0.label).tag(Optional($0)) }
         }
         .pickerStyle(.segmented)
         .labelsHidden()

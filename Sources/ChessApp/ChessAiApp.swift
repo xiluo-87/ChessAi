@@ -119,7 +119,7 @@ struct ContentView: View {
             }
             .frame(minWidth: 380, idealWidth: 420)
         }
-        .toolbar { toolbar }
+        .toolbar { mainToolbar }
         .alert("Problem", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: {
@@ -127,7 +127,7 @@ struct ContentView: View {
         }
     }
 
-    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+    @ToolbarContentBuilder private var mainToolbar: some ToolbarContent {
         ToolbarItemGroup {
             Menu {
                 Button("New Game as White") { model.newGame(humanPlays: .white) }
