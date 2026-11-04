@@ -14,11 +14,14 @@ public struct SearchStats: Sendable {
 /// the calling task is cancelled.
 public actor SearchEngine: AnalysisEngine {
     private let hashMB: Int
+    private let tables: Tables
     private var table: TranspositionTable?
     public private(set) var lastSearch: SearchStats?
 
-    public init(hashMB: Int = 32) {
+    /// `weights` other than the standard ones come from `Training.tune`.
+    public init(hashMB: Int = 32, weights: EvalWeights = .standard) {
         self.hashMB = hashMB
+        tables = weights == .standard ? .shared : Tables(weights: weights)
     }
 
     // MARK: - Serialization
@@ -78,11 +81,12 @@ public actor SearchEngine: AnalysisEngine {
         let softDeadline = movetime.map { started + UInt64(max(1, $0)) * 500_000 }
         let depthLimit = limits.depth ?? maxDepth
         let flag = StopFlag()
+        let tables = self.tables
         let (lines, depth, nodes) = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (done: CheckedContinuation<([RootLine], Int, Int), Error>) in
                 DispatchQueue.global(qos: .userInitiated).async {
                     do {
-                        let board = try Board(fen: fen, moves: moves, searchPlies: maxPly + 8)
+                        let board = try Board(fen: fen, moves: moves, searchPlies: maxPly + 8, tables: tables)
                         let searcher = Searcher(board: board, tt: table, stop: flag, deadline: deadline)
                         let result = searcher.run(multiPV: multiPV, depthLimit: depthLimit, softDeadline: softDeadline)
                         done.resume(returning: (result.lines, result.depth, searcher.nodes))

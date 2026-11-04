@@ -30,9 +30,10 @@ struct PackedMove: Equatable {
     }
 }
 
-/// Precomputed move targets, Zobrist keys and piece-square values, shared by every board.
+/// Precomputed move targets, Zobrist keys and piece-square values. Read-only once built, so boards on any thread
+/// share them; boards with other evaluation weights get their own.
 final class Tables: @unchecked Sendable {
-    static let shared = Tables()
+    static let shared = Tables(weights: .standard)
 
     /// Up to 8 targets per square, then the count.
     let knight = UnsafeMutablePointer<Int>.allocate(capacity: 64 * 8)
@@ -55,7 +56,7 @@ final class Tables: @unchecked Sendable {
     /// Endgame material by kind, for the quiescence search's delta pruning.
     let pieceValue = UnsafeMutablePointer<Int>.allocate(capacity: 8)
 
-    private init() {
+    init(weights: EvalWeights) {
         let files = [0, 0, 1, -1, 1, -1, 1, -1], ranks = [1, -1, 0, 0, 1, 1, -1, -1]
         for d in 0..<8 { direction[d] = ranks[d] * 8 + files[d] }
         let knightSteps = [(1, 2), (2, 1), (2, -1), (1, -2), (-1, -2), (-2, -1), (-2, 1), (-1, 2)]
@@ -109,8 +110,8 @@ final class Tables: @unchecked Sendable {
                 for s in 0..<64 {
                     let own = color == 0 ? s : s ^ 56  // the square seen from its owner's side
                     let sign = color == 0 ? 1 : -1
-                    middlegame[code * 64 + s] = sign * (Evaluation.material[kind].mg + Evaluation.placement(kind, own, endgame: false))
-                    endgame[code * 64 + s] = sign * (Evaluation.material[kind].eg + Evaluation.placement(kind, own, endgame: true))
+                    middlegame[code * 64 + s] = sign * weights.middlegame[kind - 1][own]
+                    endgame[code * 64 + s] = sign * weights.endgame[kind - 1][own]
                 }
             }
         }
@@ -134,7 +135,7 @@ struct Undo {
 /// ChessCore's `Position` copies itself on every move, which is right for the app and too slow for a search; this
 /// board is checked against it by perft in the tests.
 final class Board {
-    let t = Tables.shared
+    let t: Tables
     let squares = UnsafeMutablePointer<Int>.allocate(capacity: 64)
     /// Pieces on the board by code, for material checks.
     let counts = UnsafeMutablePointer<Int>.allocate(capacity: 16)
@@ -157,8 +158,9 @@ final class Board {
     let hashes: UnsafeMutablePointer<UInt64>
 
     /// The game so far: `fen` and then `moves` (UCI). Throws for an invalid FEN or an illegal move.
-    init(fen: String, moves: [String] = [], searchPlies: Int = 256) throws {
+    init(fen: String, moves: [String] = [], searchPlies: Int = 256, tables: Tables = .shared) throws {
         guard Position(fen: fen) != nil else { throw EngineError.noResponse("invalid FEN: \(fen)") }
+        t = tables
         capacity = moves.count + searchPlies + 1
         undo = .allocate(capacity: capacity)
         hashes = .allocate(capacity: capacity)
@@ -196,6 +198,28 @@ final class Board {
 
     /// Plies that may still be made before the history is full.
     var room: Int { capacity - 1 - ply }
+
+    /// The position as FEN; the move number counts from the board's start, the en passant square is given only
+    /// when a capture is possible.
+    var fen: String {
+        var rows: [String] = []
+        for rank in stride(from: 7, through: 0, by: -1) {
+            var row = "", empty = 0
+            for file in 0..<8 {
+                let p = squares[rank * 8 + file]
+                if p == 0 { empty += 1; continue }
+                if empty > 0 { row += String(empty); empty = 0 }
+                let letter = ["", "p", "n", "b", "r", "q", "k"][p & 7]
+                row += p & Code.black == 0 ? letter.uppercased() : letter
+            }
+            if empty > 0 { row += String(empty) }
+            rows.append(row)
+        }
+        var rights = ""
+        for (bit, letter) in [(1, "K"), (2, "Q"), (4, "k"), (8, "q")] where castling & bit != 0 { rights += letter }
+        let ep = enPassant >= 0 ? Squares.name(enPassant) : "-"
+        return "\(rows.joined(separator: "/")) \(side == 0 ? "w" : "b") \(rights.isEmpty ? "-" : rights) \(ep) \(halfmove) \(ply / 2 + 1)"
+    }
 
     private func load(_ fen: String) {
         let parts = fen.split(separator: " ").map(String.init)

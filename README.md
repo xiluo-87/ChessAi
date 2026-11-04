@@ -221,6 +221,18 @@ A headless game against a weakened Stockfish, with real model calls, for smoke t
 swift run chessai-cli selfplay --plies 50 --strong sonnet --cheap haiku
 ```
 
+Training `ChessSearch`'s evaluation (Texel tuning: fit its piece-square values to game results), then checking
+that the tuned weights beat the ones they started from:
+
+```bash
+swift run -c release chessai-train selfplay --games 5000 --depth 5 --out selfplay.txt
+swift run -c release chessai-train pgn games.pgn --out pgn.txt          # optional: any PGN with results
+swift run -c release chessai-train tune selfplay.txt pgn.txt --out weights.json
+swift run -c release chessai-train compare weights.json --games 400 --depth 5
+```
+
+Load the result with `SearchEngine(weights: try EvalWeights(contentsOf: url))`.
+
 | Target | Contents |
 |---|---|
 | `ChessCore` | Rules, legal move generation, SAN, FEN, PGN (perft-tested); the `AnalysisEngine` protocol |
@@ -229,6 +241,7 @@ swift run chessai-cli selfplay --plies 50 --strong sonnet --cheap haiku
 | `ChessAI` | Model CLI adapters, router and cost ledger, memory store, move picker, game review, memory updater, Lichess client and bot |
 | `ChessApp` | The SwiftUI app |
 | `ChessCLI` | Headless self-play |
+| `ChessTrain` | `chessai-train`: self-play and PGN positions, evaluation tuning, matches between weights |
 
 ## License
 

@@ -145,6 +145,12 @@ final class Searcher {
         }
     }
 
+    /// The quiescence search's score of the board as it stands, from the side to move. Equal to the static
+    /// evaluation in a quiet position, which is what training wants.
+    func quiescenceScore() -> Int {
+        quiesce(-infinity, infinity, 0)
+    }
+
     // MARK: Search
 
     @inline(__always) private func pollStop() {

@@ -5,7 +5,8 @@ import Foundation
 /// Source of the values: written for this engine, not taken from any engine or published table. Each table is a
 /// small formula over the square, from the usual opening and endgame advice: knights and bishops want the centre,
 /// rooks the seventh rank, the king shelter behind its pawns in the middlegame and the centre in the endgame, and
-/// pawns are worth more the further they have come. Untuned; Texel tuning against game results is left for later.
+/// pawns are worth more the further they have come. These are `EvalWeights.standard`; `chessai-train` can tune
+/// them against game results (`Training.tune`).
 enum Evaluation {
     /// Centipawns by kind (index 1 pawn ... 6 king), middlegame and endgame.
     static let material: [(mg: Int, eg: Int)] = [
