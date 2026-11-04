@@ -215,6 +215,7 @@ struct SourceBadge: View {
 }
 
 struct PostGameView: View {
+    @EnvironmentObject var model: AppModel
     var record: GameRecord
 
     var body: some View {
@@ -222,11 +223,11 @@ struct PostGameView: View {
             VStack(alignment: .leading, spacing: 8) {
                 if let summary = record.summary { Text(summary) }
                 if let review = record.review {
-                    Text("Accuracy — persona: avg loss \(review.persona.averageLoss) cp, you: \(review.opponent.averageLoss) cp")
+                    Text("Average loss — \(model.persona.name): \(review.persona.averageLoss) cp, \(record.opponent.isHuman ? "you" : record.opponent.name): \(review.opponent.averageLoss) cp")
                         .font(.caption)
                     let worst = review.critical(byPersona: false, limit: 3)
                     if !worst.isEmpty {
-                        Text("Your costliest moves").font(.caption.bold())
+                        Text(record.opponent.isHuman ? "Your costliest moves" : "\(record.opponent.name)'s costliest moves").font(.caption.bold())
                         ForEach(worst, id: \.ply) { Text($0.label).font(.system(.caption, design: .monospaced)) }
                     }
                 }
@@ -241,17 +242,30 @@ struct CostView: View {
 
     var body: some View {
         let total = calls.reduce(ModelUsage()) { $0 + $1.usage }
-        VStack(alignment: .leading, spacing: 4) {
+        let strong = calls.filter { $0.tier == .strong }.count
+        VStack(alignment: .leading, spacing: 3) {
             Text("Model use this game").font(.subheadline.bold())
-            Text("\(calls.count) calls · \(calls.filter { $0.tier == .strong }.count) strong · in \(total.inputTokens) / cached \(total.cachedTokens) / out \(total.outputTokens) tokens"
-                 + (total.costUSD.map { String(format: " · $%.4f list price", $0) } ?? ""))
+            Text("\(calls.count) calls, \(strong) strong" + (total.costUSD.map { String(format: " · $%.4f list price", $0) } ?? ""))
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Tokens: \(total.inputTokens) in · \(total.cachedTokens) cached · \(total.outputTokens) out")
+                .font(.caption).foregroundStyle(.secondary)
+            if !calls.isEmpty {
+                DisclosureGroup("Latest calls") {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(calls.suffix(6)) { call in
+                            Text("\(call.tier.rawValue) \(call.model): \(call.purpose), \(String(format: "%.1f", call.seconds)) s")
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 .font(.caption)
-                .foregroundStyle(.secondary)
-            ForEach(calls.suffix(6)) { call in
-                Text("\(call.tier.rawValue) \(call.model) — \(call.purpose), \(String(format: "%.1f", call.seconds)) s")
-                    .font(.caption2).foregroundStyle(.tertiary)
             }
         }
+        // Takes the height it needs: the move list above gives way, not these lines.
+        .fixedSize(horizontal: false, vertical: true)
+        .layoutPriority(1)
     }
 }
 

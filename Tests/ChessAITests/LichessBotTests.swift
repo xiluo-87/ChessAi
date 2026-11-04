@@ -295,4 +295,29 @@ final class LichessBotTests: XCTestCase {
         XCTAssertEqual(record.result, .whiteWins)
         XCTAssertEqual(record.notes.count, 6)
     }
+
+    // MARK: One game at a time
+
+    /// Regression: a second challenge arriving before the first one's game had started was accepted too, so two games
+    /// ran at once and the first one's summary replaced the second one's on screen.
+    func testSecondChallengeBeforeGameStartIsDeclined() async throws {
+        let engine = try await startedEngine()
+        defer { Task { await engine.shutdown() } }
+        func line(_ id: String) -> String {
+            #"{"type":"challenge","challenge":{"id":"\#(id)","challenger":{"id":"x","name":"X","rating":1500},"variant":{"key":"standard"},"rated":false,"speed":"rapid","timeControl":{"type":"clock","limit":600,"increment":5},"color":"random"}}"#
+        }
+        let body = line("c1") + "\n" + line("c2") + "\n"
+        BotStubProtocol.reset { request in
+            request.url?.path == "/api/stream/event" ? .init(body: body) : .init(body: #"{"ok":true}"#)
+        }
+        let bot = makeBot(engine: engine)
+        await bot.start()
+        for _ in 0..<100 where !BotStubProtocol.paths.contains("/api/challenge/c2/decline") {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        await bot.stop()
+        XCTAssertTrue(BotStubProtocol.paths.contains("/api/challenge/c1/accept"), "\(BotStubProtocol.paths)")
+        XCTAssertTrue(BotStubProtocol.paths.contains("/api/challenge/c2/decline"), "\(BotStubProtocol.paths)")
+        XCTAssertFalse(BotStubProtocol.paths.contains("/api/challenge/c2/accept"))
+    }
 }

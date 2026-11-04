@@ -98,6 +98,13 @@ public enum OpponentID: Codable, Sendable, Hashable {
     public var isHuman: Bool { if case .human = self { true } else { false } }
     public var isLichess: Bool { if case .lichess = self { true } else { false } }
 
+    /// The bare name, without where the opponent plays.
+    public var name: String {
+        switch self {
+        case .human(let name), .model(let name), .lichess(let name): name
+        }
+    }
+
     public var displayName: String {
         switch self {
         case .human(let name), .model(let name): name

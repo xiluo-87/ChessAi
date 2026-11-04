@@ -39,6 +39,7 @@ private struct LichessPanelContent: View {
                 case .bot: scrolling { accountSection; botSection }
                 case .play: scrolling {
                     if let id = lichess.currentGame { gameSection(id) }
+                    if !model.gameCalls.isEmpty { CostView(calls: model.gameCalls) }
                     challengeSection
                 }
                 case .lobby:

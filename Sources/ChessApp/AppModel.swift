@@ -359,7 +359,9 @@ final class AppModel: ObservableObject {
             lastRecord = nil
             lastCandidates = []
             gameCalls = []
+            gameStart = Date()
         }
+        refreshCalls()
         self.game = game
         self.notes = notes
         humanColor = personaColor  // board orientation only: the persona sits at the bottom
@@ -383,7 +385,14 @@ final class AppModel: ObservableObject {
 
     func personaUpdated(_ persona: PersonaProfile) { self.persona = persona }
 
+    /// The Lichess bot makes its model calls outside this class, so the panel reads them from the shared ledger.
+    private func refreshCalls() {
+        let since = gameStart
+        Task { self.gameCalls = await self.router.records(since: since) }
+    }
+
     func showRecord(_ record: GameRecord) {
+        refreshCalls()
         lastRecord = record
         status = "Lichess game over (\(record.result.rawValue)). \(persona.name) updated its notes."
     }

@@ -63,6 +63,9 @@ final class LichessController: ObservableObject {
     @Published private(set) var unavailable: [String: Date] = LichessController.loadUnavailable()
     /// Our outgoing challenges, id → opponent, to name the bot when a decline arrives.
     private var outgoing: [String: String] = [:]
+    /// Games in progress on Lichess; `currentGame` is the one on the board.
+    private struct ActiveGame { var opponent: LichessPlayer; var color: PieceColor; var speed: String }
+    private var active: [String: ActiveGame] = [:]
 
     private weak var app: AppModel?
     private var bot: LichessBot?
@@ -208,12 +211,12 @@ final class LichessController: ObservableObject {
             let who = c.challenger.map { "\($0.name)\($0.rating.map { " (\($0))" } ?? "")" } ?? "open challenge"
             note("\(accepted ? "Accepted" : "Declined") \(c.speed) \(c.rated ? "rated" : "casual") challenge from \(who)\(reason.map { ": \($0)" } ?? "").")
         case .gameStarted(let id, let opponent, let color, let rated, let speed):
-            currentGame = id
-            self.opponent = opponent
-            personaColor = color
-            currentSpeed = speed
+            active[id] = ActiveGame(opponent: opponent, color: color, speed: speed)
+            if currentGame == nil { adopt(id) }
             note("Game \(id) started: \(app?.persona.name ?? "Persona") plays \(color.rawValue) vs \(opponent.name), \(rated ? "rated" : "casual") \(speed).")
         case .position(let id, let game, let notes, let whiteMs, let blackMs):
+            // Two games can overlap (a challenge we sent gets accepted late). The board stays on one until it ends.
+            if currentGame == nil, active[id] != nil { adopt(id) }
             guard id == currentGame, let app else { return }
             clocks = (whiteMs, blackMs)
             clockStamp = Date()
@@ -231,13 +234,22 @@ final class LichessController: ObservableObject {
             if let persona { app?.personaUpdated(persona) }
             app?.refreshScores()
             Task { await self.connect(quietly: true) }  // the account's ratings changed
-            if let record, record.review != nil { app?.showRecord(record) }
+            active[id] = nil
+            if id == currentGame, let record, record.review != nil { app?.showRecord(record) }
             note("Game \(id) finished" + (record.map { ": \($0.result.rawValue)" + ($0.review == nil ? " (too short to review; counted in the score)" : "") } ?? " (aborted)") + ".")
             if id == currentGame {
                 currentGame = nil
                 app?.endExternal(record: record)
             }
         }
+    }
+
+    private func adopt(_ id: String) {
+        guard let game = active[id] else { return }
+        currentGame = id
+        opponent = game.opponent
+        personaColor = game.color
+        currentSpeed = game.speed
     }
 
     private func note(_ text: String, error: Bool = false) {

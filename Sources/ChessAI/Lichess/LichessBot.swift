@@ -44,6 +44,8 @@ public actor LichessBot {
     private let onUpdate: @Sendable (LichessBotUpdate) -> Void
     private var eventTask: Task<Void, Never>?
     private var games: [String: Task<Void, Never>] = [:]
+    /// When a challenge was last accepted: its game has not started yet, but the bot is already taken.
+    private var acceptedAt: Date?
 
     public init(
         client: LichessClient, account: LichessAccount, engine: StockfishEngine, router: ModelRouter, store: MemoryStore,
@@ -109,13 +111,16 @@ public actor LichessBot {
                 if let reason {
                     try await client.decline(challenge.id, reason: reason)
                 } else {
+                    acceptedAt = Date()
                     try await client.accept(challenge.id)
                 }
                 report(.challenge(challenge, accepted: reason == nil, reason: reason))
             } catch {
+                if reason == nil { acceptedAt = nil }
                 report(.error("Challenge \(challenge.id): \(error.localizedDescription)"))
             }
         case .gameStart(let id):
+            acceptedAt = nil
             guard games[id] == nil else { return }
             games[id] = Task { [weak self] in
                 await self?.playGame(id)
@@ -133,7 +138,9 @@ public actor LichessBot {
     /// Why a challenge is declined, in Lichess's reason vocabulary; nil accepts it.
     func declineReason(_ c: LichessChallenge) -> String? {
         if c.variant != "standard" { return "standard" }
-        if !games.isEmpty { return "later" }
+        // An accepted challenge whose game never arrives must not block the bot for good.
+        let awaitingGame = acceptedAt.map { Date().timeIntervalSince($0) < 30 } ?? false
+        if !games.isEmpty || awaitingGame { return "later" }
         if !settings.speeds.contains(c.speed) {
             let fast = ["ultraBullet", "bullet", "blitz"].contains(c.speed)
             return fast ? "tooFast" : "timeControl"
