@@ -51,7 +51,7 @@ public struct MoveDecision: Sendable {
 /// strong model is asked only when several sound moves remain, and only up to the game's call budget.
 public actor MovePicker {
     private let router: ModelRouter
-    private let engine: StockfishEngine
+    private let engine: any AnalysisEngine
     private let settings: PlaySettings
     private let persona: PersonaProfile
     private let context: MatchContext
@@ -61,7 +61,7 @@ public actor MovePicker {
     public private(set) var modelCalls = 0
 
     public init(
-        router: ModelRouter, engine: StockfishEngine, settings: PlaySettings, persona: PersonaProfile,
+        router: ModelRouter, engine: any AnalysisEngine, settings: PlaySettings, persona: PersonaProfile,
         dossier: OpponentDossier?, context: MatchContext
     ) {
         self.router = router

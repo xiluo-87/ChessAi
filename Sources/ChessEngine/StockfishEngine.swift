@@ -1,6 +1,7 @@
 import Foundation
+import ChessCore
 
-public actor StockfishEngine {
+public actor StockfishEngine: AnalysisEngine {
     private let path: String
     private var process: Process?
     private var stdinHandle: FileHandle?
@@ -54,7 +55,11 @@ public actor StockfishEngine {
 
     // MARK: - Lifecycle
 
-    public func start(threads: Int = 2, hashMB: Int = 64) async throws {
+    public func start() async throws {
+        try await start(threads: 2, hashMB: 64)
+    }
+
+    public func start(threads: Int, hashMB: Int) async throws {
         await acquire()
         defer { release() }
         try await startEngine(threads: threads, hashMB: hashMB)
@@ -135,7 +140,7 @@ public actor StockfishEngine {
     // MARK: - Search
 
     /// `fen` with `moves` (UCI, played from it) is the game so far: without the moves the engine cannot see a repetition.
-    public func analyse(fen: String, moves: [String] = [], multiPV: Int, limits: EngineLimits) async throws -> [EngineLine] {
+    public func analyse(fen: String, moves: [String], multiPV: Int, limits: EngineLimits) async throws -> [EngineLine] {
         await acquire()
         defer { release() }
         return try await analyseNow(fen: fen, moves: moves, multiPV: multiPV, limits: limits)
@@ -152,7 +157,7 @@ public actor StockfishEngine {
         return Array(lines.prefix(n))
     }
 
-    public func bestMove(fen: String, moves: [String] = [], limits: EngineLimits) async throws -> String? {
+    public func bestMove(fen: String, moves: [String], limits: EngineLimits) async throws -> String? {
         await acquire()
         defer { release() }
         return try await bestMoveNow(fen: fen, moves: moves, limits: limits)

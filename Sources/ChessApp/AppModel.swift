@@ -56,7 +56,7 @@ final class AppModel: ObservableObject {
 
     let store = MemoryStore()
     let router: ModelRouter
-    private var engine: StockfishEngine?
+    private var engine: (any AnalysisEngine)?
     private var picker: MovePicker?
     private var context: MatchContext?
     private var gameStart = Date()
@@ -91,7 +91,7 @@ final class AppModel: ObservableObject {
     /// The persona's side on the board shown: in watched games (Lichess, engine match) it sits at the bottom.
     var personaSide: PieceColor { boardIsExternal ? humanColor : personaColor }
     var bottomColor: PieceColor { boardIsExternal || engineMatch != nil ? personaSide : humanColor }
-    var engineInstance: StockfishEngine? { engine }
+    var engineInstance: (any AnalysisEngine)? { engine }
     private(set) lazy var lichess = LichessController(app: self)
 
     private func startEngine() async {

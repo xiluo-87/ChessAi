@@ -88,10 +88,10 @@ public struct GameReview: Codable, Sendable, Hashable {
 
 /// The post-game engine pass: free, local, and the only input the memory update needs besides the move notes.
 public struct GameReviewer: Sendable {
-    public var engine: StockfishEngine
+    public var engine: any AnalysisEngine
     public var depth: Int
 
-    public init(engine: StockfishEngine, depth: Int = 12) {
+    public init(engine: any AnalysisEngine, depth: Int = 12) {
         self.engine = engine
         self.depth = depth
     }
