@@ -97,8 +97,79 @@ each game's calls, tokens and list price. A test game with Sonnet as the strong 
 about $0.05 at list price, which is $0 on a Claude plan login. With the strong-model budget at 0, the persona plays
 engine-only and free.
 
-The CLIs run isolated: no tools, no project instructions, no user configuration or MCP servers, and no session
-history. Flags and environment handling follow each CLI's non-interactive mode.
+Claude Code and Codex run isolated: no project instructions, no user configuration, and no session history, with
+Claude Code's tools and MCP servers off and Codex in a read-only sandbox. OpenCode gets no isolation flags and runs
+with your own OpenCode configuration.
+
+## Using your own CLI
+
+The list of CLIs is fixed in the code, because each one needs an adapter for its flags and output. The rest is found
+or chosen at runtime:
+
+| What | How it is set |
+|---|---|
+| Supported CLIs | Fixed: `claude`, `codex`, `opencode` |
+| Location of the binary | Found on `PATH`, then in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `~/.bun/bin` and `~/.npm-global/bin` |
+| OpenCode models | Read from `opencode models` |
+| Claude and Codex models | A fixed list, plus any id you type in |
+
+**Without changing code:** use OpenCode. Configure the provider or local model there, then pick OpenCode as the backend
+in the **Models** tab. For a Claude or Codex model missing from the list, type its id into the picker.
+
+**Binary in another folder:** add the folder to your `PATH`, or to `extraFolders` in
+[`CLIRunner.swift`](Sources/ChessAI/Models/CLIRunner.swift). An app started from Finder gets a minimal `PATH`, so
+`extraFolders` is the reliable choice there.
+
+**Adding a CLI** takes changes in three files in [`Sources/ChessAI/Models`](Sources/ChessAI/Models), plus a test:
+
+| File | Change |
+|---|---|
+| `ModelBackend.swift` | Add a case to `BackendKind` (its raw value is saved in settings) and to `ModelBackends.make` |
+| `CLIBackends.swift` | Add the adapter, a type conforming to `ModelBackend` |
+| `ModelCatalog.swift` | Add it to `command`, `title` and `models(for:)`, and add its reasoning efforts to `efforts` |
+| [`CLIBackendTests.swift`](Tests/ChessAITests/CLIBackendTests.swift) | Test its arguments and environment, as the other adapters do |
+
+The compiler flags each `switch` you missed, but not `efforts`, which is a dictionary. The picker and the router read
+`BackendKind.allCases`, so the new CLI appears in the **Models** tab with no UI work.
+
+An adapter gets a system prompt, a user prompt, a JSON schema and a timeout, and returns the answer as decoded JSON.
+This one suits a CLI that reads its prompt on stdin and cannot enforce a schema:
+
+```swift
+public struct MyCLIBackend: ModelBackend {
+    public init() {}
+
+    public func run(_ request: ModelRequest, model: ModelSpec) async throws -> ModelReply {
+        guard let binary = CLIRunner.locate("mycli") else { throw ModelError.notInstalled("mycli") }
+        let message = """
+            \(request.system)
+
+            ---
+
+            \(request.prompt)
+
+            Answer with one JSON object only, matching this JSON schema:
+            \(request.schemaJSON)
+            """
+        let out = try await CLIRunner.run(
+            binary, ["--model", model.model], stdin: message,
+            environment: CLIRunner.environment(dropping: { _ in false }),
+            directory: FileManager.default.temporaryDirectory, timeout: request.timeout)
+        guard let json = ModelBackends.firstJSONObject(in: out.stdout) else {
+            throw ModelError.badOutput("mycli exited \(out.status) without a JSON answer: \(out.stderr.tail())")
+        }
+        return ModelReply(json: json, usage: ModelUsage(), seconds: out.seconds)
+    }
+}
+```
+
+Keep these in mind when you write one:
+
+- **Stateless:** each call must stand alone, with no session or conversation carried over.
+- **No tools:** turn off the CLI's tools, project instructions and user configuration if it has flags for that.
+- **Login over API keys:** use `environment(dropping:)` to remove any variable that would override the login you want,
+  as the Claude and Codex adapters do.
+- **Usage:** fill in `ModelUsage` if the CLI reports tokens or cost. Otherwise the cost panel shows zeros for its calls.
 
 ## Playing on Lichess
 
