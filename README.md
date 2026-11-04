@@ -231,16 +231,20 @@ swift run chessai-cli selfplay --plies 50 --strong sonnet --cheap haiku
 ```
 
 Training `ChessSearch`'s evaluation (Texel tuning: fit its piece-square values to game results), then checking
-that the tuned weights beat the ones they started from:
+that the tuned weights beat the ones they started from. Weights are kept in rounds, in
+`Sources/ChessSearch/Resources/Weights/round-N.json`: round 0 is the standard hand-written values, and each later
+round records the positions it was fitted to and how it played against the round before (`chessai-train rounds`).
+`round:N` names a kept round wherever a weights file is accepted. One round, from the latest kept one (here 1):
 
 ```bash
-swift run -c release chessai-train selfplay --games 5000 --depth 5 --out selfplay.txt
+swift run -c release chessai-train selfplay --games 5000 --depth 5 --weights round:1 --out selfplay.txt
 swift run -c release chessai-train pgn games.pgn --out pgn.txt          # optional: any PGN with results
-swift run -c release chessai-train tune selfplay.txt pgn.txt --out weights.json
-swift run -c release chessai-train compare weights.json --games 400 --depth 5
+swift run -c release chessai-train tune selfplay.txt pgn.txt --from round:1 --out round-2.json
+swift run -c release chessai-train compare round-2.json --against round:1 --games 400 --depth 5 --record
 ```
 
-Load the result with `SearchEngine(weights: try EvalWeights(contentsOf: url))`.
+Keep the new round by copying it to `Resources/Weights` with its round number. The engine plays round 0 unless told
+otherwise: `SearchEngine(weights: try EvalWeights.bundled(round: 1))`, or `EvalWeights(contentsOf:)` for a file.
 
 | Target | Contents |
 |---|---|

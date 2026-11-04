@@ -40,11 +40,41 @@ final class TrainingTests: XCTestCase {
     func testWeightsRoundTripAndShape() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("weights-\(UUID()).json")
         defer { try? FileManager.default.removeItem(at: url) }
-        try EvalWeights.standard.write(to: url)
-        XCTAssertEqual(try EvalWeights(contentsOf: url), .standard)
+        var tagged = EvalWeights.standard
+        tagged.round = 3; tagged.positions = 1234; tagged.note = "a \"quoted\" note"
+        try tagged.write(to: url)
+        XCTAssertEqual(try EvalWeights(contentsOf: url), tagged)
+        XCTAssertTrue(tagged.sameValues(as: .standard))
+        // Files from before the tags read as round 0.
+        try #"{"middlegame": \#(EvalWeights.standard.middlegame), "endgame": \#(EvalWeights.standard.endgame)}"#
+            .write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try EvalWeights(contentsOf: url), .standard.withNote(""))
         XCTAssertThrowsError(try EvalWeights(middlegame: [[0]], endgame: [[0]]))
         // A pawn on its fifth rank: material plus placement.
         XCTAssertEqual(EvalWeights.standard.middlegame[0][Squares.parse("e5")!], 100 + 12 + 14)
+    }
+
+    /// Round 0 is the standard values, tagged and written exactly as `write(to:)` writes them; every round after it
+    /// is tagged with its number and the positions it was fitted to.
+    func testBundledRounds() throws {
+        let rounds = EvalWeights.bundledRounds
+        XCTAssertGreaterThanOrEqual(rounds.count, 2)
+        XCTAssertEqual(rounds, Array(0..<rounds.count))
+        let zero = try EvalWeights.bundled(round: 0)
+        XCTAssertEqual(zero, .standard)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("round-0-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try EvalWeights.standard.write(to: url)
+        let bundledURL = try XCTUnwrap(Bundle.module.url(forResource: "round-0", withExtension: "json", subdirectory: "Weights"))
+        XCTAssertEqual(try Data(contentsOf: url), try Data(contentsOf: bundledURL))
+        for round in rounds.dropFirst() {
+            let w = try EvalWeights.bundled(round: round)
+            XCTAssertEqual(w.round, round)
+            XCTAssertGreaterThan(w.positions, 0)
+            XCTAssertTrue(w.note.hasPrefix("Round \(round):"), w.note)
+            XCTAssertFalse(w.sameValues(as: try EvalWeights.bundled(round: round - 1)))
+        }
+        XCTAssertThrowsError(try EvalWeights.bundled(round: rounds.count))
     }
 
     func testSearchEngineUsesItsWeights() async throws {
@@ -128,7 +158,12 @@ final class TrainingTests: XCTestCase {
         }
         let (tuned, report) = Training.tune(positions, epochs: 40)
         XCTAssertLessThan(report.lossAfter, report.lossBefore)
-        XCTAssertNotEqual(tuned, .standard)
+        XCTAssertFalse(tuned.sameValues(as: .standard))
+        XCTAssertEqual(tuned.round, 1)
+        XCTAssertEqual(tuned.positions, report.trainingPositions)
+        var next = tuned
+        next.round = 4
+        XCTAssertEqual(Training.tune(positions, from: next, epochs: 2).weights.round, 5)
         let tally = Training.compare(tuned, against: .standard, games: 2, depth: 1)
         XCTAssertEqual(tally.games, 2)
     }
@@ -137,5 +172,13 @@ final class TrainingTests: XCTestCase {
         XCTAssertEqual(MatchTally(wins: 5, draws: 0, losses: 5).eloDifference ?? 1, 0, accuracy: 1e-9)
         XCTAssertEqual(MatchTally(wins: 3, draws: 0, losses: 1).eloDifference ?? 0, 190.8, accuracy: 0.1)
         XCTAssertNil(MatchTally(wins: 2, draws: 0, losses: 0).eloDifference)
+    }
+}
+
+extension EvalWeights {
+    func withNote(_ note: String) -> EvalWeights {
+        var w = self
+        w.note = note
+        return w
     }
 }

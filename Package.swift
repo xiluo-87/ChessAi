@@ -15,7 +15,7 @@ let package = Package(
         // Stockfish over UCI.
         .target(name: "ChessEngine", dependencies: ["ChessCore"]),
         // An in-process engine (alpha-beta search), for where Stockfish cannot run. Depends on ChessCore only.
-        .target(name: "ChessSearch", dependencies: ["ChessCore"]),
+        .target(name: "ChessSearch", dependencies: ["ChessCore"], resources: [.copy("Resources/Weights")]),
         // Model adapters, persona memory, move picking and post-game analysis.
         .target(name: "ChessAI", dependencies: ["ChessCore", "ChessEngine"]),
         .executableTarget(name: "ChessApp", dependencies: ["ChessCore", "ChessEngine", "ChessAI"]),

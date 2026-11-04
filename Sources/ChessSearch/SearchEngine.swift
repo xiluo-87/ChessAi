@@ -21,7 +21,7 @@ public actor SearchEngine: AnalysisEngine {
     /// `weights` other than the standard ones come from `Training.tune`.
     public init(hashMB: Int = 32, weights: EvalWeights = .standard) {
         self.hashMB = hashMB
-        tables = weights == .standard ? .shared : Tables(weights: weights)
+        tables = weights.sameValues(as: .standard) ? .shared : Tables(weights: weights)
     }
 
     // MARK: - Serialization

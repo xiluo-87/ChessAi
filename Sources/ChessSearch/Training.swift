@@ -68,7 +68,7 @@ public enum Training {
         games: Int, depth: Int, weights: EvalWeights = .standard, randomPlies: Int = 8, seed: UInt64 = 1,
         progress: (@Sendable (Int) -> Void)? = nil
     ) -> [TrainingPosition] {
-        let tables = weights == .standard ? Tables.shared : Tables(weights: weights)
+        let tables = weights.sameValues(as: .standard) ? Tables.shared : Tables(weights: weights)
         let collected = Collector<[TrainingPosition]>()
         DispatchQueue.concurrentPerform(iterations: games) { i in
             let game = play(white: tables, black: tables, depth: depth, randomPlies: randomPlies,
@@ -285,7 +285,7 @@ public enum Training {
     /// runs of 64 consecutive positions: positions of one game share its result, so holding out single positions
     /// would leak the answers. The weights that predict the held-out results best are kept, and fitting stops once
     /// they have not improved for 50 epochs. `regularization` pulls each weight towards its start, so squares seen
-    /// in few positions keep sensible values.
+    /// in few positions keep sensible values. The result is tagged one round after `start`.
     public static func tune(
         _ positions: [TrainingPosition], from start: EvalWeights = .standard, epochs: Int = 1_000,
         learningRate: Double = 1, regularization: Double = 1e-7, log: ((String) -> Void)? = nil
@@ -330,7 +330,10 @@ public enum Training {
         let rounded = best.map { Int($0.rounded()) }
         let weights = try! EvalWeights(
             middlegame: (0..<6).map { Array(rounded[($0 * 64)..<($0 * 64 + 64)]) },
-            endgame: (0..<6).map { Array(rounded[(384 + $0 * 64)..<(384 + $0 * 64 + 64)]) })
+            endgame: (0..<6).map { Array(rounded[(384 + $0 * 64)..<(384 + $0 * 64 + 64)]) },
+            round: start.round + 1, positions: training.count,
+            note: String(format: "Round %d: tuned from round %d on %d positions (held-out error %.6f -> %.6f).",
+                         start.round + 1, start.round, training.count, before, check.loss(rounded.map(Double.init), k: k)))
         let report = TuningReport(
             k: k, trainingPositions: training.count, validationPositions: held, lossBefore: before,
             lossAfter: check.loss(rounded.map(Double.init), k: k), epochs: epoch)

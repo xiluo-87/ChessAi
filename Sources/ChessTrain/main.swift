@@ -3,13 +3,15 @@ import ChessSearch
 
 // chessai-train: tune ChessSearch's evaluation against game results.
 //
-//   chessai-train selfplay --games N [--depth D] [--random-plies P] [--weights W.json] [--seed S] --out POSITIONS
+//   chessai-train selfplay --games N [--depth D] [--random-plies P] [--weights W] [--seed S] --out POSITIONS
 //   chessai-train pgn GAMES.pgn... --out POSITIONS
-//   chessai-train tune POSITIONS... [--from W.json] [--epochs E] [--rate R] [--regularization L] --out W.json
-//   chessai-train compare W.json [--against W.json] [--games N] [--depth D]
+//   chessai-train tune POSITIONS... [--from W] [--epochs E] [--rate R] [--regularization L] --out W.json
+//   chessai-train compare W [--against W] [--games N] [--depth D] [--record]
+//   chessai-train rounds
 //
-// A typical round: self-play (or a PGN), tune, then compare the tuned weights with the ones they started from.
-// Load the result with SearchEngine(weights: try EvalWeights(contentsOf: url)).
+// W is a weights file or round:N, a round kept with the engine (round:0 is the standard values). A typical round:
+// self-play with the latest round, tune from it, then compare the result with it; --record adds the match to the
+// new file's note. A round worth keeping goes to Sources/ChessSearch/Resources/Weights/round-N.json.
 
 let args = Array(CommandLine.arguments.dropFirst())
 
@@ -18,12 +20,15 @@ func option(_ name: String) -> String? {
     return args[i + 1]
 }
 
+/// Options that take no value.
+let flags: Set = ["--record"]
+
 /// Arguments that are neither options nor their values.
 var inputs: [String] {
     var out: [String] = []
     var i = 1
     while i < args.count {
-        if args[i].hasPrefix("--") { i += 2 } else { out.append(args[i]); i += 1 }
+        if flags.contains(args[i]) { i += 1 } else if args[i].hasPrefix("--") { i += 2 } else { out.append(args[i]); i += 1 }
     }
     return out
 }
@@ -35,7 +40,12 @@ func fail(_ message: String) -> Never {
 
 func weights(_ path: String?) -> EvalWeights {
     guard let path else { return .standard }
-    do { return try EvalWeights(contentsOf: URL(fileURLWithPath: path)) } catch { fail("cannot read weights \(path): \(error)") }
+    do {
+        if path.hasPrefix("round:"), let round = Int(path.dropFirst(6)) { return try EvalWeights.bundled(round: round) }
+        return try EvalWeights(contentsOf: URL(fileURLWithPath: path))
+    } catch {
+        fail("cannot read weights \(path): \(error)")
+    }
 }
 
 func output() -> URL {
@@ -82,29 +92,46 @@ case "tune":
         learningRate: option("--rate").flatMap(Double.init) ?? 1,
         regularization: option("--regularization").flatMap(Double.init) ?? 1e-7) { print($0) }
     try tuned.write(to: out)
-    print(String(format: "error %.6f -> %.6f after %d epochs, %@; weights written to %@",
-                 report.lossBefore, report.lossAfter, report.epochs, elapsed(), out.path))
+    print(String(format: "round %d: error %.6f -> %.6f after %d epochs, %@; weights written to %@",
+                 tuned.round, report.lossBefore, report.lossAfter, report.epochs, elapsed(), out.path))
 
 case "compare":
     guard let candidate = inputs.first else { fail("compare needs a weights file") }
     let games = option("--games").flatMap(Int.init) ?? 100
+    var tested = weights(candidate)
+    let baseline = weights(option("--against"))
+    let depth = option("--depth").flatMap(Int.init) ?? 4
     let tally = Training.compare(
-        weights(candidate), against: weights(option("--against")), games: games,
-        depth: option("--depth").flatMap(Int.init) ?? 4, seed: option("--seed").flatMap(UInt64.init) ?? 1
+        tested, against: baseline, games: games, depth: depth, seed: option("--seed").flatMap(UInt64.init) ?? 1
     ) { done in
         if done % max(1, games / 10) == 0 { print("\(done)/\(games) games, \(elapsed())") }
     }
-    let elo = tally.eloDifference.map { String(format: "%+.0f", $0) } ?? "n/a"
-    print(String(format: "+%d =%d -%d, score %.1f%%, Elo difference %@", tally.wins, tally.draws, tally.losses,
-                 tally.score * 100, elo))
+    let elo = tally.eloDifference.map { String(format: "%+.0f", $0 + 0) } ?? "n/a"  // + 0: no "-0"
+    let summary = String(format: "+%d =%d -%d, score %.1f%%, Elo difference %@", tally.wins, tally.draws, tally.losses,
+                         tally.score * 100, elo)
+    print(summary)
+    if args.contains("--record") {
+        guard !candidate.hasPrefix("round:") else { fail("--record writes to the candidate's file; round:N is read-only") }
+        tested.note += " Against round \(baseline.round), \(games) games at depth \(depth): \(summary)."
+        try tested.write(to: URL(fileURLWithPath: candidate))
+        print("recorded in \(candidate)")
+    }
+
+case "rounds":
+    for round in EvalWeights.bundledRounds {
+        let w = try EvalWeights.bundled(round: round)
+        print("round \(w.round): \(w.positions) positions. \(w.note)")
+    }
 
 default:
     print("""
     usage:
-      chessai-train selfplay --games N [--depth D] [--random-plies P] [--weights W.json] [--seed S] --out POSITIONS
+      chessai-train selfplay --games N [--depth D] [--random-plies P] [--weights W] [--seed S] --out POSITIONS
       chessai-train pgn GAMES.pgn... --out POSITIONS
-      chessai-train tune POSITIONS... [--from W.json] [--epochs E] [--rate R] [--regularization L] --out W.json
-      chessai-train compare W.json [--against W.json] [--games N] [--depth D]
+      chessai-train tune POSITIONS... [--from W] [--epochs E] [--rate R] [--regularization L] --out W.json
+      chessai-train compare W [--against W] [--games N] [--depth D] [--record]
+      chessai-train rounds
+    W is a weights file or round:N (bundled with the engine; round:0 is the standard values).
     """)
     exit(args.isEmpty ? 0 : 1)
 }
