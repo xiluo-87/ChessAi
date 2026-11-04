@@ -49,7 +49,7 @@ while game.result == .ongoing && game.moves.count < maxPlies {
         game.play(decision.move)
         print("\(notes.count / 2 + notes.count % 2). \(san)  [\(decision.source.rawValue)] \(decision.reason ?? "")")
     } else {
-        guard let uci = try await sparring.bestMove(fen: game.current.fen, limits: EngineLimits(depth: sparringDepth)),
+        guard let uci = try await sparring.bestMove(fen: game.startPosition.fen, moves: game.moves.map(\.uci), limits: EngineLimits(depth: sparringDepth)),
               let move = Move(uci: uci) else { break }
         san = game.current.san(for: move)
         notes.append(MoveNote(ply: notes.count, san: san, byPersona: false))

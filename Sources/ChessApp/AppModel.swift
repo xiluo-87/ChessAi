@@ -322,7 +322,7 @@ final class AppModel: ObservableObject {
                     gameCalls = await router.records(since: gameStart)
                 } else {
                     status = "\(label) is thinking…"
-                    guard let uci = try await opponent.bestMove(fen: snapshot.current.fen, limits: EngineLimits(depth: depth)),
+                    guard let uci = try await opponent.bestMove(fen: snapshot.startPosition.fen, moves: snapshot.moves.map(\.uci), limits: EngineLimits(depth: depth)),
                           let move = Move(uci: uci), snapshot.current.isLegal(move) else { break }
                     // A short pause so the engine's instant replies stay watchable.
                     try await Task.sleep(for: .milliseconds(400))

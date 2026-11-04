@@ -134,43 +134,44 @@ public actor StockfishEngine {
 
     // MARK: - Search
 
-    public func analyse(fen: String, multiPV: Int, limits: EngineLimits) async throws -> [EngineLine] {
+    /// `fen` with `moves` (UCI, played from it) is the game so far: without the moves the engine cannot see a repetition.
+    public func analyse(fen: String, moves: [String] = [], multiPV: Int, limits: EngineLimits) async throws -> [EngineLine] {
         await acquire()
         defer { release() }
-        return try await analyseNow(fen: fen, multiPV: multiPV, limits: limits)
+        return try await analyseNow(fen: fen, moves: moves, multiPV: multiPV, limits: limits)
     }
 
-    private func analyseNow(fen: String, multiPV: Int, limits: EngineLimits) async throws -> [EngineLine] {
+    private func analyseNow(fen: String, moves: [String], multiPV: Int, limits: EngineLimits) async throws -> [EngineLine] {
         let n = max(1, multiPV)
         if n != currentMultiPV {
             try send("setoption name MultiPV value \(n)")
             currentMultiPV = n
             try await sync()
         }
-        let (lines, _) = try await search(fen: fen, limits: limits)
+        let (lines, _) = try await search(fen: fen, moves: moves, limits: limits)
         return Array(lines.prefix(n))
     }
 
-    public func bestMove(fen: String, limits: EngineLimits) async throws -> String? {
+    public func bestMove(fen: String, moves: [String] = [], limits: EngineLimits) async throws -> String? {
         await acquire()
         defer { release() }
-        return try await bestMoveNow(fen: fen, limits: limits)
+        return try await bestMoveNow(fen: fen, moves: moves, limits: limits)
     }
 
-    private func bestMoveNow(fen: String, limits: EngineLimits) async throws -> String? {
+    private func bestMoveNow(fen: String, moves: [String], limits: EngineLimits) async throws -> String? {
         if currentMultiPV != 1 {
             try send("setoption name MultiPV value 1")
             currentMultiPV = 1
             try await sync()
         }
-        let (_, best) = try await search(fen: fen, limits: limits)
+        let (_, best) = try await search(fen: fen, moves: moves, limits: limits)
         return best
     }
 
-    private func search(fen: String, limits: EngineLimits) async throws -> ([EngineLine], String?) {
+    private func search(fen: String, moves: [String], limits: EngineLimits) async throws -> ([EngineLine], String?) {
         guard started, process?.isRunning == true else { throw EngineError.terminated }
         reader.drain()
-        try send("position fen \(fen)")
+        try send("position fen \(fen)" + (moves.isEmpty ? "" : " moves " + moves.joined(separator: " ")))
         var go = "go"
         var timeout: TimeInterval = 120
         if let d = limits.depth { go += " depth \(d)" }

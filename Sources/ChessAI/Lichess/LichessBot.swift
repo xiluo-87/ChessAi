@@ -276,7 +276,8 @@ public actor LichessBot {
     }
 
     private func finish(_ m: Match, _ state: LichessGameState) async {
-        let (result, end) = Self.outcome(state)
+        let (result, serverEnd) = Self.outcome(state)
+        let end = Self.end(server: serverEnd, board: m.game.end)
         guard end != .aborted, !m.game.moves.isEmpty else {
             report(.gameFinished(id: m.id, record: nil, persona: nil))
             return
@@ -330,6 +331,13 @@ public actor LichessBot {
         default: nil
         }
         return (result, end)
+    }
+
+    /// Lichess reports every drawn game as "draw": threefold and the fifty-move rule as well as an agreement. When the
+    /// board shows a rule that draws the game, that is the real reason, and it is what the review is told.
+    static func end(server: GameEnd?, board: GameEnd?) -> GameEnd? {
+        guard server == .drawAgreed, let board else { return server }
+        return board
     }
 
     /// `Game.pgn` takes its result from the board; a server result (time, resignation, agreed draw) replaces it.

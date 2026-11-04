@@ -92,4 +92,20 @@ final class StockfishEngineTests: XCTestCase {
         XCTAssertEqual(best, "d1d8")
         XCTAssertEqual(mateLines.first?.score.mate, 1)
     }
+
+    /// Regression: the engine was given only the current position, so it rated a third repetition as winning (+5.2)
+    /// and JSON Bourne walked into a draw (Lichess game 8L5R3JaG). With the game's moves it sees the draw.
+    func testHistoryRevealsRepetition() async throws {
+        let engine = try await makeEngine()
+        defer { Task { await engine.shutdown() } }
+        let repeating = "c8c7"
+        let alone = try await engine.analyse(
+            fen: "2k5/8/p1P4p/1pK5/6P1/8/8/8 b - - 8 52", multiPV: 4, limits: EngineLimits(depth: 14))
+        XCTAssertGreaterThan(try XCTUnwrap(alone.first { $0.move == repeating }).score.normalized, 200)
+        let withHistory = try await engine.analyse(
+            fen: "8/2k5/p1P4p/1pK5/6P1/8/8/8 w - - 0 47",
+            moves: ["c5d5", "c7c8", "d5c5", "c8c7", "c5d5", "c7b8", "d5d6", "b8c8", "d6c5"],
+            multiPV: 4, limits: EngineLimits(depth: 14))
+        XCTAssertEqual(try XCTUnwrap(withHistory.first { $0.move == repeating }).score.normalized, 0)
+    }
 }

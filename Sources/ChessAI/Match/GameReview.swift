@@ -100,13 +100,15 @@ public struct GameReviewer: Sendable {
         // One evaluation per position, from White's side, with the best move there.
         var evals: [Int] = []
         var bests: [Move?] = []
-        for position in game.positions {
+        for (ply, position) in game.positions.enumerated() {
             if position.legalMoves().isEmpty {
                 evals.append(position.isCheckmate() ? (position.sideToMove == .white ? -100_000 : 100_000) : 0)
                 bests.append(nil)
                 continue
             }
-            let line = try await engine.analyse(fen: position.fen, multiPV: 1, limits: EngineLimits(depth: depth)).first
+            let line = try await engine.analyse(
+                fen: game.startPosition.fen, moves: game.moves.prefix(ply).map(\.uci), multiPV: 1,
+                limits: EngineLimits(depth: depth)).first
             let score = line?.score.normalized ?? 0
             evals.append(position.sideToMove == .white ? score : -score)
             bests.append(line.flatMap { Move(uci: $0.move) })

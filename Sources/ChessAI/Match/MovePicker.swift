@@ -85,7 +85,7 @@ public actor MovePicker {
         if let book = bookMove(in: game) { return book }
 
         let lines = try await engine.analyse(
-            fen: position.fen, multiPV: settings.candidates, limits: EngineLimits(depth: settings.engineDepth))
+            fen: game.startPosition.fen, moves: game.moves.map(\.uci), multiPV: settings.candidates, limits: EngineLimits(depth: settings.engineDepth))
         let candidates = lines.compactMap { line -> Candidate? in
             guard let move = Move(uci: line.move), position.isLegal(move) else { return nil }
             return Candidate(move: move, san: position.san(for: move), score: line.score, line: Self.sanLine(line.pv, from: position))

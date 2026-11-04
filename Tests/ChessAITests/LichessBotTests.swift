@@ -320,4 +320,16 @@ final class LichessBotTests: XCTestCase {
         XCTAssertTrue(BotStubProtocol.paths.contains("/api/challenge/c2/decline"), "\(BotStubProtocol.paths)")
         XCTAssertFalse(BotStubProtocol.paths.contains("/api/challenge/c2/accept"))
     }
+
+    func testServerDrawKeepsTheRuleTheBoardShows() {
+        // Lichess said only "draw"; this repetition is the game's real ending (8L5R3JaG).
+        var game = Game(start: Position(fen: "8/2k5/p1P4p/1pK5/6P1/8/8/8 w - - 0 53")!)
+        for uci in ["c5d5", "c7c8", "d5c5", "c8c7", "c5d5", "c7b8", "d5d6", "b8c8", "d6c5", "c8c7"] {
+            XCTAssertTrue(game.play(Move(uci: uci)!), uci)
+        }
+        XCTAssertEqual(game.end, .threefoldRepetition)
+        XCTAssertEqual(LichessBot.end(server: .drawAgreed, board: game.end), .threefoldRepetition)
+        XCTAssertEqual(LichessBot.end(server: .drawAgreed, board: nil), .drawAgreed)
+        XCTAssertEqual(LichessBot.end(server: .timeout, board: .threefoldRepetition), .timeout)
+    }
 }
