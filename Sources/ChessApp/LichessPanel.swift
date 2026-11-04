@@ -9,283 +9,408 @@ struct LichessPanel: View {
     }
 }
 
+/// The clock and rated choice for challenges, shared by Play and Lobby.
+private enum ChallengeDefaults {
+    static let minutes = "lichess.minutes"
+    static let increment = "lichess.increment"
+    static let rated = "lichess.rated"
+}
+
 private struct LichessPanelContent: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var lichess: LichessController
-    @State private var token = ""
-    @State private var confirmUpgrade = false
-    @State private var opponentName = ""
-    @State private var minutes = 10
-    @State private var increment = 5
-    /// Set in the Lobby; also used by the challenge-by-name in Play.
-    @AppStorage("lichess.rated") private var rated = false
-    @State private var aiLevel = 3
+    @Environment(\.openSettings) private var openSettings
+    @AppStorage("settings.tab") private var settingsTab = SettingsTab.general
+    @AppStorage(ChallengeDefaults.minutes) private var minutes = 10
+    @AppStorage(ChallengeDefaults.increment) private var increment = 5
 
-    private static let tokenURL = URL(string: "https://lichess.org/account/oauth/token/create?scopes[]=bot:play&description=ChessAi")!
-
-    enum Section: String, CaseIterable { case bot = "Bot", play = "Play", lobby = "Lobby", activity = "Activity" }
-    @AppStorage("lichess.section") private var section = Section.bot
+    enum Pane: String, CaseIterable { case play = "Play", lobby = "Lobby", activity = "Activity" }
+    @AppStorage("lichess.pane") private var pane = Pane.lobby
 
     var body: some View {
         VStack(spacing: 0) {
-            if lichess.account?.isBot == true {
-                Picker("", selection: $section) {
-                    ForEach(Section.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding([.horizontal, .top], 12)
-                switch section {
-                case .bot: scrolling { accountSection; botSection }
-                case .play: scrolling {
-                    if let id = lichess.currentGame { gameSection(id) }
-                    if !model.gameCalls.isEmpty { CostView(calls: model.gameCalls) }
-                    challengeSection
-                }
-                case .lobby:
-                    lobbySection.padding()
-                        .task { if lichess.bots.isEmpty { await lichess.refreshBots() } }
-                case .activity: scrolling { logSection }
+            if let account = lichess.account, account.isBot {
+                header(account)
+                SubBar(selection: $pane, items: Pane.allCases) { $0.rawValue }
+                Divider()
+                switch pane {
+                case .play: LichessPlayPane(lichess: lichess)
+                case .lobby: LichessLobby(lichess: lichess)
+                case .activity: LichessActivity(lichess: lichess)
                 }
             } else {
-                // Until the account is a BOT, only the account setup matters.
-                scrolling { accountSection; logSection }
+                setup
             }
         }
         .task { if lichess.hasToken && lichess.account == nil { await lichess.connect() } }
     }
 
-    private func scrolling<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) { content() }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
+    private func header(_ account: LichessAccount) -> some View {
+        let speed = LichessController.speed(minutes: minutes, increment: increment)
+        return HStack(spacing: 8) {
+            Circle()
+                .fill(lichess.running ? Color.green : Color.secondary.opacity(0.4))
+                .frame(width: 8, height: 8)
+            Text(account.username).font(.headline).lineLimit(1)
+            Text(account.ratings[speed].map { "\(speed) \($0)" } ?? "\(speed) unrated")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Spacer()
+            Toggle("Online", isOn: Binding(get: { lichess.running }, set: { $0 ? lichess.start() : lichess.stop() }))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .disabled(!model.engineReady)
+                .help(lichess.running ? "\(model.persona.name) accepts challenges and plays" : "Go online to play on Lichess")
+            Button { openLichessSettings() } label: { Image(systemName: "gearshape") }
+                .buttonStyle(.borderless)
+                .help("Lichess settings")
         }
-        .scrollIndicators(.visible)
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
     }
 
-    // MARK: Account
+    /// Until the account is a connected BOT, the panel only points to Settings.
+    private var setup: some View {
+        ContentUnavailableView {
+            Label("Lichess bot", systemImage: "globe")
+        } description: {
+            Text(setupText)
+        } actions: {
+            if lichess.hasToken && lichess.account == nil {
+                Button("Connect") { Task { await lichess.connect() } }.disabled(lichess.busy)
+            }
+            Button("Open Lichess Settings…") { openLichessSettings() }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
-    @ViewBuilder private var accountSection: some View {
-        GroupBox("Account") {
-            VStack(alignment: .leading, spacing: 8) {
-                if !lichess.hasToken {
-                    Text("Use a separate Lichess account for the bot. Create an API token with the bot:play scope, then paste it here. It is kept in your Keychain.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Link("Create a token on lichess.org", destination: Self.tokenURL)
-                    HStack {
-                        SecureField("API token", text: $token)
-                        Button("Save") { lichess.saveToken(token); token = "" }.disabled(token.isEmpty)
+    private var setupText: String {
+        if !lichess.hasToken { return "Add the API token of a Lichess bot account in Settings." }
+        guard let account = lichess.account else { return lichess.busy ? "Connecting…" : "Not connected." }
+        return "\(account.username) is not a BOT account yet. Upgrade it in Settings."
+    }
+
+    private func openLichessSettings() {
+        settingsTab = .lichess
+        openSettings()
+    }
+}
+
+// MARK: Play
+
+private struct LichessPlayPane: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var lichess: LichessController
+    @AppStorage(ChallengeDefaults.minutes) private var minutes = 10
+    @AppStorage(ChallengeDefaults.increment) private var increment = 5
+    @AppStorage(ChallengeDefaults.rated) private var rated = false
+    @State private var opponentName = ""
+    @State private var aiLevel = 3
+
+    var body: some View {
+        Form {
+            if let id = lichess.currentGame {
+                Section("Current game") {
+                    LabeledContent("Opponent") {
+                        Text("\(lichess.opponent?.name ?? "?")\(lichess.opponent?.rating.map { " (\($0))" } ?? "")")
                     }
-                } else if let account = lichess.account {
+                    LabeledContent("Clock") {
+                        Text("White \(lichessClock(lichess.clocks.white)) · Black \(lichessClock(lichess.clocks.black))")
+                            .monospacedDigit()
+                    }
                     HStack {
-                        Text(account.username).bold()
-                        Text(account.isBot ? "BOT" : "not a bot yet")
-                            .font(.caption.bold()).padding(.horizontal, 5)
-                            .background((account.isBot ? Color.green : Color.orange).opacity(0.2), in: Capsule())
+                        Link("Open on Lichess", destination: URL(string: "https://lichess.org/\(id)")!)
                         Spacer()
-                        Button("Forget token", role: .destructive) { lichess.forgetToken() }
+                        Button("Resign", role: .destructive) { lichess.resign() }
                     }
-                    if account.isBot, account.ratings.isEmpty {
-                        Text("No rating yet: only rated games count, and the first ones are provisional.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    if account.isBot, !account.ratings.isEmpty {
-                        Text(["rapid", "classical", "blitz", "correspondence"].compactMap { speed in
-                            account.ratings[speed].map { "\(speed) \(String($0))" }
-                        }.joined(separator: "  ·  "))
-                        .font(.callout.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                    }
-                    if !account.isBot {
-                        Text("Bots play through the Bot API, which needs a BOT account. The upgrade is permanent and only works on an account that has never played a game.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Button("Upgrade \(account.username) to a BOT account…") { confirmUpgrade = true }
-                            .confirmationDialog("Upgrade \(account.username) to BOT permanently?", isPresented: $confirmUpgrade) {
-                                Button("Upgrade permanently", role: .destructive) { Task { await lichess.upgrade() } }
-                            } message: {
-                                Text("This cannot be undone. The account can then only play as a bot.")
-                            }
-                    }
-                } else {
-                    HStack {
-                        Button("Connect") { Task { await lichess.connect() } }
-                        if lichess.busy { ProgressView().controlSize(.small) }
-                        Spacer()
-                        Button("Forget token", role: .destructive) { lichess.forgetToken() }
-                    }
+                    if !model.gameCalls.isEmpty { CostSummary(calls: model.gameCalls) }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(6)
-        }
-    }
-
-    // MARK: Bot
-
-    private var botSection: some View {
-        GroupBox("Bot") {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Circle().fill(lichess.running ? Color.green : Color.secondary).frame(width: 9, height: 9)
-                    Text(lichess.running ? "\(model.persona.name) is online" : "Offline")
-                    Spacer()
-                    Button(lichess.running ? "Go offline" : "Go online") {
-                        lichess.running ? lichess.stop() : lichess.start()
-                    }
-                    .disabled(!model.engineReady)
-                }
-                Text("Accepts").font(.caption.bold())
-                HStack {
-                    ForEach(["blitz", "rapid", "classical", "correspondence"], id: \.self) { speed in
-                        Toggle(speed, isOn: Binding(
-                            get: { lichess.settings.speeds.contains(speed) },
-                            set: { on in if on { lichess.settings.speeds.insert(speed) } else { lichess.settings.speeds.remove(speed) } }))
-                            .toggleStyle(.checkbox)
-                    }
-                }
-                HStack {
-                    Toggle("rated", isOn: $lichess.settings.acceptRated).toggleStyle(.checkbox)
-                    Toggle("casual", isOn: $lichess.settings.acceptCasual).toggleStyle(.checkbox)
-                    Toggle("bots", isOn: $lichess.settings.acceptBots).toggleStyle(.checkbox)
-                    Toggle("humans", isOn: $lichess.settings.acceptHumans).toggleStyle(.checkbox)
-                }
-                Text("With under 90 s on its clock it skips the model and plays Stockfish's top candidate. Blitz therefore plays mostly engine moves.")
-                    .font(.caption).foregroundStyle(.secondary)
+            Section("Time control") {
+                TimeControlPicker(minutes: $minutes, increment: $increment)
+                Toggle("Rated", isOn: $rated)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(6)
-        }
-    }
-
-    private func gameSection(_ id: String) -> some View {
-        GroupBox("Current game") {
-            VStack(alignment: .leading, spacing: 6) {
+            Section {
                 HStack {
-                    Text("vs \(lichess.opponent?.name ?? "?")\(lichess.opponent?.rating.map { " (\($0))" } ?? "")").bold()
-                    Spacer()
-                    Link("Open on Lichess", destination: URL(string: "https://lichess.org/\(id)")!)
-                }
-                Text("White \(Self.clock(lichess.clocks.white))   Black \(Self.clock(lichess.clocks.black))")
-                    .font(.system(.callout, design: .monospaced))
-                Button("Resign", role: .destructive) { lichess.resign() }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(6)
-        }
-    }
-
-    private var challengeSection: some View {
-        GroupBox("Challenge") {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Stepper("\(minutes) min", value: $minutes, in: 1...180)
-                    Stepper("+\(increment) s", value: $increment, in: 0...60)
-                }
-                HStack {
-                    TextField("Lichess username", text: $opponentName)
+                    TextField("Username", text: $opponentName, prompt: Text("Lichess username"))
+                        .labelsHidden()
+                    ChallengeStatus(state: opponentName.isEmpty ? nil : lichess.challengeState(opponentName))
                     Button("Challenge") {
                         Task { await lichess.challenge(username: opponentName, minutes: minutes, increment: increment, rated: rated) }
                     }
-                    .disabled(opponentName.isEmpty || !lichess.running)
+                    .disabled(opponentName.isEmpty || !canChallenge)
                 }
+            } header: {
+                Text("Challenge a player")
+            }
+            Section {
                 HStack {
-                    Stepper("Lichess AI level \(aiLevel)", value: $aiLevel, in: 1...8)
-                    Button("Play it") { Task { await lichess.challengeAI(level: aiLevel, minutes: minutes, increment: increment) } }
-                        .disabled(!lichess.running)
+                    Stepper("Level \(aiLevel)", value: $aiLevel, in: 1...8)
+                    Spacer()
+                    Button("Play") { Task { await lichess.challengeAI(level: aiLevel, minutes: minutes, increment: increment) } }
+                        .disabled(!canChallenge)
                 }
-                Text("Lichess AI is Stockfish at reduced strength, which makes it a good first test opponent.")
-                    .font(.caption).foregroundStyle(.secondary)
+            } header: {
+                HStack(spacing: 4) {
+                    Text("Lichess AI")
+                    InfoButton("Stockfish at reduced strength, run by Lichess: always available, so a good first opponent.")
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var canChallenge: Bool { lichess.running && lichess.currentGame == nil && !lichess.challengePending }
+}
+
+// MARK: Lobby
+
+private struct LichessLobby: View {
+    @ObservedObject var lichess: LichessController
+    @AppStorage(ChallengeDefaults.minutes) private var minutes = 10
+    @AppStorage(ChallengeDefaults.increment) private var increment = 5
+    @AppStorage(ChallengeDefaults.rated) private var rated = false
+    @AppStorage("lichess.lobby.ascending") private var ascending = false
+    @State private var query = ""
+
+    var body: some View {
+        let speed = LichessController.speed(minutes: minutes, increment: increment)
+        let bots = lichess.bots
+            .filter { query.isEmpty || $0.username.localizedCaseInsensitiveContains(query) }
+            .sorted { a, b in
+                // Highest rating first (or lowest), bots without a rating at this speed last.
+                guard let ra = a.ratings[speed] else { return false }
+                guard let rb = b.ratings[speed] else { return true }
+                return ascending ? ra < rb : ra > rb
+            }
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                TextField("Filter", text: $query, prompt: Text("Filter by name"))
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                Button { Task { await lichess.refreshBots() } } label: { Image(systemName: "arrow.clockwise") }
+                    .help("Reload the bots online now")
+                    .disabled(lichess.busy)
+                InfoButton {
+                    Text("The bots online on Lichess now. Ratings are for the speed of the chosen clock.")
+                    Text("Greyed out: it has played its 100 bot games today, or declined us in the last hour.")
+                    Text("A challenge it does not answer within 10 seconds is withdrawn.")
+                }
+            }
+            HStack(spacing: 12) {
+                TimeControlMenu(minutes: $minutes, increment: $increment)
+                Toggle("Rated", isOn: $rated).toggleStyle(.checkbox)
+                Spacer()
+                if lichess.busy { ProgressView().controlSize(.small) }
+            }
+            HStack(spacing: 8) {
+                Text("\(bots.count) bots").frame(maxWidth: .infinity, alignment: .leading)
+                Button { ascending.toggle() } label: {
+                    HStack(spacing: 2) {
+                        Text("Elo")
+                        Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .help(ascending ? "Lowest rating first" : "Highest rating first")
+                .frame(width: LobbyRow.ratingWidth, alignment: .trailing)
+                Text("Games").frame(width: LobbyRow.gamesWidth, alignment: .trailing)
+                Color.clear.frame(width: LobbyRow.actionWidth, height: 1)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            Divider()
+            if bots.isEmpty {
+                ContentUnavailableView(
+                    lichess.busy ? "Loading bots…" : "No bots", systemImage: "person.2",
+                    description: Text(query.isEmpty ? "Reload to see the bots online now." : "No bot matches the filter."))
+                    .frame(maxHeight: .infinity)
+            } else {
+                List(bots) { bot in
+                    LobbyRow(bot: bot, speed: speed, lichess: lichess, minutes: $minutes, increment: $increment, rated: $rated)
+                }
+                .listStyle(.plain)
+            }
+        }
+        .padding([.horizontal, .top], 12)
+        .task { if lichess.bots.isEmpty { await lichess.refreshBots() } }
+    }
+}
+
+private struct LobbyRow: View {
+    static let ratingWidth: CGFloat = 52
+    static let gamesWidth: CGFloat = 48
+    static let actionWidth: CGFloat = 96
+
+    let bot: LichessBotInfo
+    let speed: String
+    @ObservedObject var lichess: LichessController
+    @Binding var minutes: Int
+    @Binding var increment: Int
+    @Binding var rated: Bool
+    @State private var confirming = false
+
+    var body: some View {
+        let state = lichess.challengeState(bot.username)
+        let available = lichess.isAvailable(bot.username)
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Link(destination: URL(string: "https://lichess.org/@/\(bot.username)")!) {
+                    Text(bot.username).lineLimit(1).truncationMode(.middle)
+                }
+                if let line = statusLine(state, available) {
+                    Text(line.text).font(.caption2).foregroundStyle(line.color).lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(6)
-        }
-    }
-
-    // MARK: Lobby
-
-    @State private var lobbyQuery = ""
-    @State private var showBusy = false
-    @State private var showUnrated = false
-
-    private var lobbySection: some View {
-        let speed = LichessController.speed(minutes: minutes, increment: increment)
-        let target = 1500
-        let busy = lichess.bots.filter { !lichess.isAvailable($0.username) }.count
-        let shown = lichess.bots
-            .filter { showBusy || lichess.isAvailable($0.username) }
-            .filter { $0.ratings[speed] != nil || showUnrated }
-            .filter { lobbyQuery.isEmpty || $0.username.localizedCaseInsensitiveContains(lobbyQuery) }
-            .sorted { abs(($0.ratings[speed] ?? 0) - target) < abs(($1.ratings[speed] ?? 0) - target) }
-        return VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    TextField("Filter by name", text: $lobbyQuery)
-                    Button("Refresh") { Task { await lichess.refreshBots() } }
-                    if lichess.busy { ProgressView().controlSize(.small) }
-                }
-                Toggle("Rated challenges (they count for \(model.persona.name)'s rating)", isOn: $rated).toggleStyle(.checkbox)
-                HStack {
-                    Toggle("show busy (\(busy))", isOn: $showBusy).toggleStyle(.checkbox)
-                    Toggle("show unrated for \(speed)", isOn: $showUnrated).toggleStyle(.checkbox)
-                }
+            Text(bot.ratings[speed].map(String.init) ?? "–")
+                .monospacedDigit()
+                .frame(width: Self.ratingWidth, alignment: .trailing)
+            Text((bot.games[speed] ?? 0).formatted(.number.notation(.compactName)))
                 .font(.caption)
-                Text("Ratings for \(speed) (\(minutes)+\(increment)), closest to 1500 first. Busy = hit Lichess's 100 bot games a day, or declined us recently. Challenges use the clock from Play.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if lichess.bots.isEmpty { Text("Press Refresh to load the bots online now.").foregroundStyle(.secondary) }
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(shown.prefix(80)) { bot in
-                            HStack {
-                                Link(destination: URL(string: "https://lichess.org/@/\(bot.username)")!) {
-                                    Text(bot.username).lineLimit(1).truncationMode(.middle)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                Text(bot.ratings[speed].map(String.init) ?? "–")
-                                    .font(.system(.callout, design: .monospaced))
-                                Text("\((bot.games[speed] ?? 0).formatted(.number.notation(.compactName))) games")
-                                    .font(.caption).foregroundStyle(.secondary).frame(width: 74, alignment: .trailing)
-                                if !lichess.isAvailable(bot.username) {
-                                    Text("busy").font(.caption2).foregroundStyle(.orange)
-                                }
-                                Button("Challenge") {
-                                    Task { await lichess.challenge(username: bot.username, minutes: minutes, increment: increment, rated: rated) }
-                                }
-                                .disabled(!lichess.running || lichess.currentGame != nil)
-                            }
-                            .padding(.vertical, 1)
-                        }
+                .foregroundStyle(.secondary)
+                .frame(width: Self.gamesWidth, alignment: .trailing)
+            action(state, available)
+                .frame(width: Self.actionWidth, alignment: .trailing)
+        }
+        .opacity(available ? 1 : 0.5)
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder private func action(_ state: LichessController.ChallengeState?, _ available: Bool) -> some View {
+        if state?.isPending == true {
+            ProgressView()
+                .controlSize(.small)
+                .help("Waiting for \(bot.username) to answer")
+        } else if state == .accepted {
+            Label("Accepted", systemImage: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+        } else {
+            Button("Challenge") { confirming = true }
+                .disabled(!available || blocked != nil)
+                .help(blocked ?? (available ? "Challenge \(bot.username)" : "Not available now"))
+                .popover(isPresented: $confirming, arrowEdge: .leading) {
+                    ChallengePopover(bot: bot, minutes: $minutes, increment: $increment, rated: $rated) {
+                        Task { await lichess.challenge(username: bot.username, minutes: minutes, increment: increment, rated: rated) }
                     }
-                    .padding(.trailing, 10)
                 }
-                .scrollIndicators(.visible)
+        }
+    }
+
+    /// Why no challenge can be sent to anyone right now.
+    private var blocked: String? {
+        if !lichess.running { return "Go online first" }
+        if lichess.currentGame != nil { return "A game is in progress" }
+        if lichess.challengePending { return "Waiting for another answer" }
+        return nil
+    }
+
+    private func statusLine(_ state: LichessController.ChallengeState?, _ available: Bool) -> (text: String, color: Color)? {
+        switch state {
+        case .declined(let why)?: return ("Declined: \(why)", .orange)
+        case .noAnswer?: return ("No answer, withdrawn", .secondary)
+        case .failed(let why)?: return (why, .red)
+        default: break
+        }
+        if !available, let until = lichess.unavailable[bot.username.lowercased()] {
+            return ("Busy until \(until.formatted(date: .omitted, time: .shortened))", .secondary)
+        }
+        return nil
+    }
+}
+
+/// The challenge window: the clock and rated choice, then send.
+private struct ChallengePopover: View {
+    let bot: LichessBotInfo
+    @Binding var minutes: Int
+    @Binding var increment: Int
+    @Binding var rated: Bool
+    let send: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let speed = LichessController.speed(minutes: minutes, increment: increment)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(bot.username).font(.headline).lineLimit(1)
+                Spacer()
+                Text(bot.ratings[speed].map { "\(speed) \($0)" } ?? "\(speed) unrated")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            TimeControlPicker(minutes: $minutes, increment: $increment)
+            Toggle("Rated", isOn: $rated)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Challenge") {
+                    dismiss()
+                    send()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(width: 340)
+    }
+}
+
+/// How the latest challenge to one player went, next to the challenge-by-name field.
+private struct ChallengeStatus: View {
+    var state: LichessController.ChallengeState?
+
+    var body: some View {
+        switch state {
+        case .sending?, .waiting?:
+            ProgressView().controlSize(.small)
+        case .accepted?:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Accepted")
+        case .declined(let why)?:
+            Text(why).font(.caption).foregroundStyle(.orange)
+        case .noAnswer?:
+            Text("No answer").font(.caption).foregroundStyle(.secondary)
+        case .failed(let why)?:
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red).help(why)
+        case nil:
+            EmptyView()
+        }
+    }
+}
+
+// MARK: Activity
+
+private struct LichessActivity: View {
+    @ObservedObject var lichess: LichessController
+
+    var body: some View {
+        if lichess.log.isEmpty {
+            ContentUnavailableView("No activity yet", systemImage: "list.bullet")
                 .frame(maxHeight: .infinity)
+        } else {
+            List(lichess.log.suffix(100).reversed()) { line in
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(line.date.formatted(date: .omitted, time: .standard))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text(line.text)
+                        .font(.caption)
+                        .foregroundStyle(line.isError ? Color.red : Color.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .listStyle(.plain)
         }
     }
+}
 
-    // MARK: Log
-
-    private var logSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Activity").font(.subheadline.bold())
-            if lichess.log.isEmpty { Text("Nothing yet.").foregroundStyle(.secondary) }
-            ForEach(lichess.log.suffix(40).reversed()) { line in
-                Text("\(line.date.formatted(date: .omitted, time: .standard))  \(line.text)")
-                    .font(.caption)
-                    .foregroundStyle(line.isError ? Color.red : Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-            }
-        }
-    }
-
-    private static func clock(_ ms: Int) -> String {
-        guard ms < 86_400_000 else { return "∞" }
-        let seconds = ms / 1000
-        return seconds >= 3600
-            ? String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
-            : String(format: "%d:%02d", seconds / 60, seconds % 60)
-    }
+func lichessClock(_ ms: Int) -> String {
+    guard ms < 86_400_000 else { return "∞" }
+    let seconds = ms / 1000
+    return seconds >= 3600
+        ? String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
+        : String(format: "%d:%02d", seconds / 60, seconds % 60)
 }

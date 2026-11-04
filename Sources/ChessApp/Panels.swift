@@ -7,45 +7,64 @@ import ChessAI
 struct GamePanel: View {
     @EnvironmentObject var model: AppModel
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Button("New as White") { model.newGame(humanPlays: .white) }
-                Button("New as Black") { model.newGame(humanPlays: .black) }
-                Spacer()
-                Button("Resign", role: .destructive) { model.resign() }
-                    .disabled(!(model.phase == .playing || model.phase == .personaThinking))
-            }
-            .disabled(!model.engineReady || (model.phase == .watching && model.engineMatch == nil))
+    enum Pane: String, CaseIterable { case moves = "Moves", review = "Review" }
+    @State private var pane = Pane.moves
 
-            EngineMatchBox()
-            personaHeader
-            if let record = model.lastRecord {
-                ScrollView { PostGameView(record: record) }
-                    .scrollIndicators(.visible)
-                    .frame(maxHeight: 220)
+    var body: some View {
+        VStack(spacing: 0) {
+            SubBar(selection: $pane, items: Pane.allCases) { $0.rawValue }
+            Divider()
+            VStack(alignment: .leading, spacing: 10) {
+                header
+                if model.engineMatchRunning { matchBanner }
+                switch pane {
+                case .moves:
+                    // The move list takes the remaining height and scrolls on its own.
+                    MoveListView()
+                        .frame(maxHeight: .infinity)
+                    if model.showThoughts, !model.lastCandidates.isEmpty { candidates }
+                case .review:
+                    if let record = model.lastRecord {
+                        ScrollView { PostGameView(record: record) }
+                            .scrollIndicators(.visible)
+                            .frame(maxHeight: .infinity)
+                    } else {
+                        ContentUnavailableView(
+                            "No review yet", systemImage: "text.magnifyingglass",
+                            description: Text("\(model.persona.name) reviews each game when it ends."))
+                            .frame(maxHeight: .infinity)
+                    }
+                }
+                Divider()
+                CostSummary(calls: model.gameCalls)
             }
-            Divider()
-            // The move list takes the remaining height and scrolls on its own.
-            MoveListView()
-                .frame(maxHeight: .infinity)
-            if model.showThoughts, !model.lastCandidates.isEmpty { candidates }
-            Divider()
-            CostView(calls: model.gameCalls)
+            .padding()
         }
-        .padding()
+        // A finished game opens on its review; a new one on its moves.
+        .onChange(of: model.lastRecord?.id) { _, id in pane = id == nil ? .moves : .review }
     }
 
-    private var personaHeader: some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(model.persona.name).font(.headline)
-            HStack(spacing: 14) {
-                Label("vs you \(model.offlineScore.text)", systemImage: "person.fill")
-                Label("Lichess \(model.lichessScore.text)", systemImage: "globe")
-            }
-            .font(.callout.monospacedDigit())
-            Text(model.persona.style).font(.callout).foregroundStyle(.secondary).lineLimit(3)
+            InfoButton(model.persona.style)
+            Spacer()
+            Label(model.offlineScore.text, systemImage: "person.fill").help("Score against you")
+            Label(model.lichessScore.text, systemImage: "globe").help("Score on Lichess")
         }
+        .font(.callout.monospacedDigit())
+    }
+
+    private var matchBanner: some View {
+        HStack {
+            Image(systemName: "flag.2.crossed")
+            Text("Watching vs \(model.engineMatch?.label ?? "Stockfish")")
+            Spacer()
+            Button("Stop") { model.stopEngineMatch() }
+        }
+        .font(.callout)
+        .padding(8)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
     }
 
     private var candidates: some View {
@@ -56,6 +75,23 @@ struct GamePanel: View {
                     .font(.system(.caption, design: .monospaced))
             }
         }
+    }
+}
+
+/// One line of model use, with the details in a popover.
+struct CostSummary: View {
+    var calls: [CallRecord]
+
+    var body: some View {
+        let cost = calls.reduce(ModelUsage()) { $0 + $1.usage }.costUSD
+        HStack(spacing: 6) {
+            Image(systemName: "sparkles").foregroundStyle(.secondary)
+            Text(calls.isEmpty ? "No model calls yet" : "\(calls.count) model calls" + (cost.map { String(format: " · $%.4f", $0) } ?? ""))
+            InfoButton { CostView(calls: calls) }
+            Spacer()
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 }
 
@@ -140,61 +176,6 @@ struct MoveListView: View {
     }
 }
 
-/// Start or stop a watched match: the persona against plain Stockfish at a chosen Elo.
-struct EngineMatchBox: View {
-    @EnvironmentObject var model: AppModel
-    @AppStorage("engineMatch.depth") private var depth = 10
-    @AppStorage("engineMatch.white") private var personaWhite = true
-    @State private var expanded = false
-
-    var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Depth for both").font(.callout)
-                    Slider(value: Binding(get: { Double(depth) }, set: { depth = Int($0) }), in: 2...20, step: 1)
-                    Text("\(depth) · \(Self.level(depth))").font(.callout.monospacedDigit()).frame(width: 120, alignment: .trailing)
-                }
-                HStack {
-                    Picker("", selection: $personaWhite) {
-                        Text("\(model.persona.name) white").tag(true)
-                        Text("\(model.persona.name) black").tag(false)
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 200)
-                    Spacer()
-                    if model.engineMatch != nil && model.phase == .watching {
-                        Button("Stop") { model.stopEngineMatch() }
-                    } else {
-                        Button("Start") {
-                            model.startEngineMatch(personaPlays: personaWhite ? .white : .black, depth: depth)
-                        }
-                        .disabled(!model.engineReady || model.phase == .watching || model.phase == .personaThinking)
-                    }
-                }
-                Text("Equal strength: Stockfish plays its best move at this depth; \(model.persona.name) gets Stockfish's candidates at the same depth and its model picks one. Just to watch: not counted, reviewed or saved.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(.top, 4)
-        } label: {
-            Text("\(model.persona.name) vs Stockfish").font(.subheadline.bold())
-        }
-    }
-}
-
-extension EngineMatchBox {
-    /// A rough feel for the depth, not a measured rating.
-    static func level(_ depth: Int) -> String {
-        switch depth {
-        case ..<5: "beginner"
-        case ..<8: "club"
-        case ..<12: "strong club"
-        case ..<16: "master"
-        default: "superhuman"
-        }
-    }
-}
-
 struct SourceBadge: View {
     var source: MoveSource?
 
@@ -273,31 +254,42 @@ struct CostView: View {
 
 struct MemoryPanel: View {
     @EnvironmentObject var model: AppModel
-    @State private var confirmReset = false
+
+    enum Pane: Hashable { case own, opponent }
+    @State private var pane = Pane.own
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(model.persona.name)'s notes on its own play").font(.headline)
-                    Text(model.persona.style).font(.callout).foregroundStyle(.secondary)
-                }
-                NotesList(notes: model.persona.notes, empty: "No notes yet: they form after the first game.")
-
-                let dossier = model.dossier ?? model.store.dossier(
-                    .human(model.settings.playerName), persona: model.persona.id,
-                    in: try! MatchContext(mode: .singlePlayer, personaID: model.persona.id,
-                                          opponent: .human(model.settings.playerName), personaColor: .black))
-                Text("Its notes on you (\(model.settings.playerName), \(dossier?.record.text ?? "no games"))").font(.headline)
-                Text("Used only in single-player games; never loaded in PvP.").font(.caption).foregroundStyle(.secondary)
-                NotesList(notes: dossier?.notes ?? [], empty: "Nothing yet.")
-
-                Button("Reset persona memory…", role: .destructive) { confirmReset = true }
-                    .confirmationDialog("Erase all of \(model.persona.name)'s notes on its own play?", isPresented: $confirmReset) {
-                        Button("Erase", role: .destructive) { model.resetPersonaMemory() }
-                    }
+        VStack(spacing: 0) {
+            SubBar(selection: $pane, items: [.own, .opponent]) {
+                $0 == .own ? "Own play" : "On \(model.settings.playerName)"
             }
-            .padding()
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    switch pane {
+                    case .own:
+                        HStack(spacing: 6) {
+                            Text("\(model.persona.name)'s notes on its own play").font(.headline)
+                            InfoButton(model.persona.style)
+                        }
+                        NotesList(notes: model.persona.notes, empty: "No notes yet: they form after the first game.")
+                    case .opponent:
+                        let dossier = model.dossier ?? model.store.dossier(
+                            .human(model.settings.playerName), persona: model.persona.id,
+                            in: try! MatchContext(mode: .singlePlayer, personaID: model.persona.id,
+                                                  opponent: .human(model.settings.playerName), personaColor: .black))
+                        HStack(spacing: 6) {
+                            Text("Its notes on \(model.settings.playerName)").font(.headline)
+                            Text(dossier?.record.text ?? "no games").font(.callout).foregroundStyle(.secondary)
+                            InfoButton("Used only in single-player games against you; never loaded in PvP or on Lichess.")
+                        }
+                        NotesList(notes: dossier?.notes ?? [], empty: "Nothing yet.")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+            }
+            .scrollIndicators(.visible)
         }
     }
 }

@@ -53,8 +53,21 @@ struct ChessAiApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Game as White") { model.newGame(humanPlays: .white) }.keyboardShortcut("n")
-                Button("New Game as Black") { model.newGame(humanPlays: .black) }.keyboardShortcut("n", modifiers: [.command, .shift])
+                Button("New Game as White") { model.newGame(humanPlays: .white) }
+                    .keyboardShortcut("n")
+                    .disabled(!model.canStartGame)
+                Button("New Game as Black") { model.newGame(humanPlays: .black) }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .disabled(!model.canStartGame)
+                Divider()
+                Button("Watch \(model.persona.name) vs Stockfish") { model.startEngineMatch() }
+                    .keyboardShortcut("n", modifiers: [.command, .option])
+                    .disabled(!model.canStartEngineMatch)
+                Button("Stop Stockfish Match") { model.stopEngineMatch() }
+                    .disabled(!model.engineMatchRunning)
+                Divider()
+                Button("Resign") { model.resign() }
+                    .disabled(!model.canResign)
             }
         }
 
@@ -67,9 +80,9 @@ struct ChessAiApp: App {
 
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
-    @State private var tab = Tab.game
+    @AppStorage("main.tab") private var tab = Tab.game
 
-    enum Tab: String, CaseIterable { case game = "Game", lichess = "Lichess", memory = "Memory", models = "Models" }
+    enum Tab: String, CaseIterable { case game = "Game", lichess = "Lichess", memory = "Memory" }
 
     var body: some View {
         HSplitView {
@@ -94,21 +107,50 @@ struct ContentView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .padding(10)
+                .controlSize(.large)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
                 Divider()
                 switch tab {
                 case .game: GamePanel()
                 case .lichess: LichessPanel()
                 case .memory: MemoryPanel()
-                case .models: ScrollView { ModelPickerForm().padding() }
                 }
             }
-            .frame(minWidth: 360, idealWidth: 400)
+            .frame(minWidth: 380, idealWidth: 420)
         }
+        .toolbar { mainToolbar }
         .alert("Problem", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: {
             Text(model.error ?? "")
+        }
+    }
+
+    @ToolbarContentBuilder private var mainToolbar: some ToolbarContent {
+        ToolbarItemGroup {
+            Menu {
+                Button("New Game as White") { model.newGame(humanPlays: .white) }
+                    .disabled(!model.canStartGame)
+                Button("New Game as Black") { model.newGame(humanPlays: .black) }
+                    .disabled(!model.canStartGame)
+                Divider()
+                Button("Watch \(model.persona.name) vs Stockfish") { model.startEngineMatch() }
+                    .disabled(!model.canStartEngineMatch)
+            } label: {
+                Label("New Game", systemImage: "plus")
+            }
+            .help("New game")
+            if model.engineMatchRunning {
+                Button { model.stopEngineMatch() } label: { Label("Stop Match", systemImage: "stop.fill") }
+                    .help("Stop the Stockfish match")
+            } else {
+                Button { model.resign() } label: { Label("Resign", systemImage: "flag") }
+                    .disabled(!model.canResign)
+                    .help("Resign this game")
+            }
+            SettingsLink { Label("Settings", systemImage: "gearshape") }
+                .help("Settings (⌘,)")
         }
     }
 }

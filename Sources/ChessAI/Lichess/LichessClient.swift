@@ -146,6 +146,11 @@ public final class LichessClient: Sendable {
                                    form: [("reason", reason)]))
     }
 
+    /// Withdraws a challenge we sent that has not been answered.
+    public func cancelChallenge(_ challengeID: String) async throws {
+        try await send(makeRequest("/api/challenge/\(Self.pathSegment(challengeID))/cancel", method: "POST"))
+    }
+
     public func move(_ gameID: String, uci: String, offeringDraw: Bool = false) async throws {
         try await send(makeRequest("/api/bot/game/\(Self.pathSegment(gameID))/move/\(Self.pathSegment(uci))",
                                    method: "POST", query: offeringDraw ? [("offeringDraw", "true")] : []))
@@ -232,10 +237,10 @@ public final class LichessClient: Sendable {
             }
             return .challenge(challenge)
         case "challengeCanceled", "challengeDeclined":
-            guard let id = obj.dict("challenge")?.str("id") else {
+            guard let c = obj.dict("challenge"), let id = c.str("id") else {
                 throw LichessError.decoding("\(type) event without challenge id")
             }
-            return type == "challengeCanceled" ? .challengeCanceled(id) : .challengeDeclined(id)
+            return type == "challengeCanceled" ? .challengeCanceled(id) : .challengeDeclined(id, reason: c.str("declineReasonKey"))
         case "gameStart", "gameFinish":
             guard let g = obj.dict("game"), let id = g.str("gameId") ?? g.str("id") else {
                 throw LichessError.decoding("\(type) event without game id")

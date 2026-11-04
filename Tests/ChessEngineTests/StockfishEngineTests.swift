@@ -1,4 +1,5 @@
 import XCTest
+import ChessCore
 @testable import ChessEngine
 
 final class StockfishEngineTests: XCTestCase {
