@@ -210,10 +210,19 @@ Everything stays on your Mac:
 
 ```bash
 swift build
-swift test          # about 100 tests: perft, engine, memory, privacy, picker, CLI arguments, Lichess (stubbed)
+swift test          # about 130 tests: perft, both engines, training, memory, privacy, picker, CLI arguments, Lichess (stubbed)
 ```
 
-The engine and Lichess game tests need Stockfish and skip without it. No test calls a real model or lichess.org.
+The Stockfish, move picker and Lichess game tests need Stockfish and skip without it; `ChessSearch`'s tests do not.
+No test calls a real model or lichess.org.
+
+`ChessSearch`'s speed, and a match against Stockfish for a rough strength estimate, are opt-in tests (options in
+`Tests/ChessSearchTests/StrengthTests.swift`):
+
+```bash
+CHESSAI_BENCH=1 swift test -c release -Xswiftc -enable-testing --filter StrengthTests.testBenchmark
+CHESSAI_MATCH=20 swift test -c release -Xswiftc -enable-testing --filter StrengthTests.testMatchAgainstStockfish
+```
 
 A headless game against a weakened Stockfish, with real model calls, for smoke tests:
 
