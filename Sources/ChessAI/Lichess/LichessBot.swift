@@ -265,7 +265,7 @@ public actor LichessBot {
         m.game.play(decision.move)
         m.notes.append(MoveNote(
             ply: m.notes.count, san: san, byPersona: true, source: decision.source, reason: decision.reason,
-            evalBefore: decision.evalWhite))
+            evalBefore: decision.evalWhite, engineTop: decision.engineTop))
         report(.position(id: m.id, game: m.game, notes: m.notes, whiteMs: state.wtime, blackMs: state.btime))
         return false
     }

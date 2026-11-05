@@ -14,13 +14,16 @@ public struct SearchStats: Sendable {
 /// the calling task is cancelled.
 public actor SearchEngine: AnalysisEngine {
     private let hashMB: Int
+    private let maxMoveTimeMs: Int?
     private let tables: Tables
     private var table: TranspositionTable?
     public private(set) var lastSearch: SearchStats?
 
-    /// `weights` other than the standard ones come from `Training.tune`.
-    public init(hashMB: Int = 32, weights: EvalWeights = .standard) {
+    /// `weights` other than the standard ones come from `Training.tune`. `maxMoveTimeMs` caps every search, so callers
+    /// that ask only for a depth (tuned for Stockfish's speed) cannot run away on a clock.
+    public init(hashMB: Int = 32, weights: EvalWeights = .standard, maxMoveTimeMs: Int? = nil) {
         self.hashMB = hashMB
+        self.maxMoveTimeMs = maxMoveTimeMs
         tables = weights.sameValues(as: .standard) ? .shared : Tables(weights: weights)
     }
 
@@ -75,7 +78,8 @@ public actor SearchEngine: AnalysisEngine {
     private func search(fen: String, moves: [String], multiPV: Int, limits: EngineLimits) async throws -> [EngineLine] {
         guard let table else { throw EngineError.terminated }
         let started = DispatchTime.now().uptimeNanoseconds
-        let movetime = limits.movetimeMs ?? (limits.depth == nil ? 1000 : nil)
+        let requested = limits.movetimeMs ?? (limits.depth == nil ? 1000 : nil)
+        let movetime = [requested, maxMoveTimeMs].compactMap { $0 }.min()
         let deadline = movetime.map { started + UInt64(max(1, $0)) * 1_000_000 }
         // An iteration takes several times the one before, so one begun after half the time would rarely finish.
         let softDeadline = movetime.map { started + UInt64(max(1, $0)) * 500_000 }

@@ -31,6 +31,30 @@ enum MatchDefaults {
     static let whiteKey = "engineMatch.white"
 }
 
+/// Settings ▸ Engine: which engine finds the persona's candidates and reviews its games.
+enum EngineChoice: String, CaseIterable, Identifiable {
+    case stockfish, chessSearch
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .stockfish: "Stockfish"
+        case .chessSearch: "ChessSearch (our own)"
+        }
+    }
+}
+
+enum EngineDefaults {
+    static let key = "engine.choice"
+    /// ChessSearch is far slower to a given depth than Stockfish, and the callers ask for depths: this keeps its moves
+    /// within a Lichess clock whatever the Strength setting says.
+    static let chessSearchMoveTimeMs = 2_000
+
+    static var choice: EngineChoice {
+        UserDefaults.standard.string(forKey: key).flatMap(EngineChoice.init(rawValue:)) ?? .stockfish
+    }
+}
+
 /// Settings ▸ General: whether finished games are saved as training data for ChessSearch's evaluation.
 enum TrainingDefaults {
     static let saveGamesKey = "training.saveGames"
@@ -58,7 +82,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastRecord: GameRecord?
     @Published private(set) var gameCalls: [CallRecord] = []
     @Published private(set) var lastCandidates: [Candidate] = []
-    @Published var status = "Starting Stockfish…"
+    @Published var status = "Starting the engine…"
     /// The persona's score per arena, counted from the saved games.
     @Published private(set) var offlineScore = Record()
     @Published private(set) var lichessScore = Record()
@@ -69,6 +93,8 @@ final class AppModel: ObservableObject {
     let store = MemoryStore()
     let router: ModelRouter
     private var engine: (any AnalysisEngine)?
+    /// Each engine stays up once started: a game or the Lichess bot may still be using the one switched away from.
+    private var engines: [EngineChoice: any AnalysisEngine] = [:]
     private var picker: MovePicker?
     private var context: MatchContext?
     private var gameStart = Date()
@@ -84,7 +110,7 @@ final class AppModel: ObservableObject {
         if store.persona(settings.personaID) == nil { try? store.save(MemoryStore.defaultPersona) }
         persona = store.persona(settings.personaID) ?? MemoryStore.defaultPersona
         refreshScores()
-        Task { await startEngine() }
+        Task { await useSelectedEngine() }
     }
 
     func refreshScores() {
@@ -106,15 +132,30 @@ final class AppModel: ObservableObject {
     var engineInstance: (any AnalysisEngine)? { engine }
     private(set) lazy var lichess = LichessController(app: self)
 
-    private func startEngine() async {
+    /// Games and the Lichess bot started from now on use the engine chosen in Settings; running ones keep theirs.
+    func useSelectedEngine() async {
+        let choice = EngineDefaults.choice
         do {
-            let engine = try StockfishEngine()
-            try await engine.start()
-            self.engine = engine
+            let selected: any AnalysisEngine
+            if let running = engines[choice] {
+                selected = running
+            } else {
+                engineReady = false
+                switch choice {
+                case .stockfish: selected = try StockfishEngine()
+                case .chessSearch: selected = SearchEngine(maxMoveTimeMs: EngineDefaults.chessSearchMoveTimeMs)
+                }
+                try await selected.start()
+                engines[choice] = selected
+            }
+            guard choice == EngineDefaults.choice else { return }  // switched again meanwhile: that call decides
+            engine = selected
             engineReady = true
             if phase == .idle { status = "Start a new game." }
         } catch {
-            self.error = "Stockfish could not start (\(error)). Install it with: brew install stockfish"
+            guard choice == EngineDefaults.choice else { return }
+            engine = nil
+            self.error = "Stockfish could not start (\(error)). Install it with: brew install stockfish, or choose ChessSearch in Settings ▸ Engine."
         }
     }
 
@@ -129,7 +170,7 @@ final class AppModel: ObservableObject {
     // MARK: Game flow
 
     func newGame(humanPlays color: PieceColor) {
-        guard let engine else { error = "Stockfish is not running."; return }
+        guard let engine else { error = "The engine is not running."; return }
         do {
             let opponent = OpponentID.human(settings.playerName)
             let context = try MatchContext(mode: .singlePlayer, personaID: persona.id, opponent: opponent, personaColor: color.opposite)
@@ -184,7 +225,7 @@ final class AppModel: ObservableObject {
                 self.game.play(decision.move)
                 self.notes.append(MoveNote(
                     ply: self.notes.count, san: san, byPersona: true, source: decision.source,
-                    reason: decision.reason, evalBefore: decision.evalWhite))
+                    reason: decision.reason, evalBefore: decision.evalWhite, engineTop: decision.engineTop))
                 self.lastCandidates = decision.candidates
                 self.gameCalls = await self.router.records(since: self.gameStart)
                 if !self.checkEnd() {
@@ -343,7 +384,8 @@ final class AppModel: ObservableObject {
                     guard !Task.isCancelled, game.moves == snapshot.moves else { return }
                     notes.append(MoveNote(
                         ply: notes.count, san: snapshot.current.san(for: decision.move), byPersona: true,
-                        source: decision.source, reason: decision.reason, evalBefore: decision.evalWhite))
+                        source: decision.source, reason: decision.reason, evalBefore: decision.evalWhite,
+                        engineTop: decision.engineTop))
                     game.play(decision.move)
                     lastCandidates = decision.candidates
                     gameCalls = await router.records(since: gameStart)

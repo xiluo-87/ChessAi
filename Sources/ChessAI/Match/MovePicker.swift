@@ -45,6 +45,12 @@ public struct MoveDecision: Sendable {
     public var candidates: [Candidate]
     /// The position's evaluation from White's side, when the engine ran.
     public var evalWhite: Int?
+
+    /// The engine's top move, when the model chose a different one.
+    public var engineTop: String? {
+        guard source == .model, let top = candidates.first, top.move != move else { return nil }
+        return top.san
+    }
 }
 
 /// Chooses the persona's moves. Free sources come first (forced move, repertoire, a clearly best engine line); the

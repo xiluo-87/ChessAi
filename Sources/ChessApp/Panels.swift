@@ -162,6 +162,11 @@ struct MoveListView: View {
                     .frame(width: 36, alignment: .trailing).foregroundStyle(.secondary)
                 Text(note.san).bold()
                 if note.byPersona { SourceBadge(source: note.source) }
+                if let top = note.engineTop {
+                    Image(systemName: "arrow.triangle.branch")
+                        .foregroundStyle(.green)
+                        .help("Chosen over the engine's top move, \(top)")
+                }
             }
             .font(.system(.callout, design: .monospaced))
             if note.byPersona, let reason = note.reason, !reason.isEmpty {

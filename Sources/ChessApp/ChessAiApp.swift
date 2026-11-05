@@ -93,10 +93,12 @@ struct ContentView: View {
                     .frame(minWidth: 480, minHeight: 480)
                 PlayerBar(lichess: model.lichess, top: false)
                 HStack {
-                    Text(model.status).font(.callout).foregroundStyle(.secondary)
-                    if model.phase == .personaThinking || model.phase == .reviewing { ProgressView().controlSize(.small) }
+                    Text(model.status).font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                    if model.phase == .personaThinking || model.phase == .reviewing { ProgressView().controlSize(.mini) }
                     Spacer()
                 }
+                // A fixed height for two lines, so the board keeps its size as the status and spinner change.
+                .frame(height: 34)
             }
             .padding()
             .layoutPriority(1)

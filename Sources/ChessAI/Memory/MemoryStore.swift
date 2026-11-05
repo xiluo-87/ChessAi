@@ -15,14 +15,20 @@ public struct MoveNote: Codable, Sendable, Hashable {
     public var reason: String?
     /// The engine's evaluation before the move, from White's side, when it was computed during play.
     public var evalBefore: Int?
+    /// The engine's top move, when the model chose a different one.
+    public var engineTop: String?
 
-    public init(ply: Int, san: String, byPersona: Bool, source: MoveSource? = nil, reason: String? = nil, evalBefore: Int? = nil) {
+    public init(
+        ply: Int, san: String, byPersona: Bool, source: MoveSource? = nil, reason: String? = nil, evalBefore: Int? = nil,
+        engineTop: String? = nil
+    ) {
         self.ply = ply
         self.san = san
         self.byPersona = byPersona
         self.source = source
         self.reason = reason
         self.evalBefore = evalBefore
+        self.engineTop = engineTop
     }
 }
 

@@ -3,7 +3,7 @@ import AppKit
 import ChessAI
 
 enum SettingsTab: String {
-    case general, models, lichess, match
+    case general, engine, models, lichess, match
 }
 
 /// The app's Settings window (⌘,): everything set once and rarely changed, out of the main window.
@@ -17,6 +17,9 @@ struct SettingsView: View {
             GeneralSettings()
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
+            EngineSettings()
+                .tabItem { Label("Engine", systemImage: "bolt.horizontal") }
+                .tag(SettingsTab.engine)
             ModelSettings()
                 .tabItem { Label("Models", systemImage: "cpu") }
                 .tag(SettingsTab.models)
@@ -28,6 +31,47 @@ struct SettingsView: View {
                 .tag(SettingsTab.match)
         }
         .frame(width: 540, height: 500)
+    }
+}
+
+// MARK: Engine
+
+private struct EngineSettings: View {
+    @EnvironmentObject var model: AppModel
+    @AppStorage(EngineDefaults.key) private var choice = EngineChoice.stockfish
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Engine", selection: $choice) {
+                    ForEach(EngineChoice.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+            } footer: {
+                switch choice {
+                case .stockfish:
+                    Text("The strongest choice. It finds \(model.persona.name)'s candidates and reviews its games.")
+                case .chessSearch:
+                    Text("Our own engine, in place of Stockfish for \(model.persona.name)'s candidates and game reviews. It is weaker, and stops at \(EngineDefaults.chessSearchMoveTimeMs / 1000) s per position even if that is short of the depth below. Stockfish match opponents are still Stockfish.")
+                }
+            }
+            Section {
+                LabeledContent("Strength") {
+                    HStack {
+                        Slider(value: Binding(
+                            get: { Double(model.settings.play.engineDepth) },
+                            set: { model.settings.play.engineDepth = Int($0) }), in: 4...20, step: 1)
+                        Text("depth \(model.settings.play.engineDepth)")
+                            .monospacedDigit()
+                            .frame(width: 64, alignment: .trailing)
+                    }
+                }
+            } footer: {
+                Text("Changes apply from the next game. The Lichess bot picks up a new engine when it next goes online.")
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: choice) { Task { await model.useSelectedEngine() } }
     }
 }
 
@@ -47,16 +91,6 @@ private struct GeneralSettings: View {
                 Text("How \(model.persona.name) knows you in single-player games.")
             }
             Section {
-                LabeledContent("Strength") {
-                    HStack {
-                        Slider(value: Binding(
-                            get: { Double(model.settings.play.engineDepth) },
-                            set: { model.settings.play.engineDepth = Int($0) }), in: 4...20, step: 1)
-                        Text("depth \(model.settings.play.engineDepth)")
-                            .monospacedDigit()
-                            .frame(width: 64, alignment: .trailing)
-                    }
-                }
                 Stepper("Strong-model calls per game: \(model.settings.play.maxModelCalls)",
                         value: $model.settings.play.maxModelCalls, in: 0...80, step: 5)
                 Stepper("Candidate margin: \(model.settings.play.marginCp) cp",
@@ -262,7 +296,7 @@ private struct MatchSettings: View {
                 }
                 .pickerStyle(.segmented)
             } footer: {
-                Text("A game to watch at equal strength: Stockfish plays its best move at this depth, and \(model.persona.name)'s model picks among Stockfish's candidates at the same depth. Not counted, reviewed or saved. Start it from New Game ▸ Watch vs Stockfish (⌥⌘N).")
+                Text("A game to watch: Stockfish plays its best move at this depth, and \(model.persona.name)'s model picks among its engine's candidates at the same depth, which is equal strength when that engine is Stockfish too. Not counted, reviewed or saved. Start it from New Game ▸ Watch vs Stockfish (⌥⌘N).")
             }
         }
         .formStyle(.grouped)

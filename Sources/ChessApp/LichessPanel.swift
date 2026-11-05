@@ -201,7 +201,7 @@ private struct LichessLobby: View {
                 TimeControlMenu(minutes: $minutes, increment: $increment)
                 Toggle("Rated", isOn: $rated).toggleStyle(.checkbox)
                 Spacer()
-                if lichess.busy { ProgressView().controlSize(.small) }
+                if lichess.busy { ProgressView().controlSize(.mini) }
             }
             HStack(spacing: 8) {
                 Text("\(bots.count) bots").frame(maxWidth: .infinity, alignment: .leading)
@@ -228,7 +228,7 @@ private struct LichessLobby: View {
                     .frame(maxHeight: .infinity)
             } else {
                 List(bots) { bot in
-                    LobbyRow(bot: bot, speed: speed, lichess: lichess, minutes: $minutes, increment: $increment, rated: $rated)
+                    LobbyRow(bot: bot, speed: speed, lichess: lichess, minutes: minutes, increment: increment, rated: rated)
                 }
                 .listStyle(.plain)
             }
@@ -242,14 +242,15 @@ private struct LobbyRow: View {
     static let ratingWidth: CGFloat = 52
     static let gamesWidth: CGFloat = 48
     static let actionWidth: CGFloat = 96
+    /// Tall enough for a status line, so a row keeps its height as a challenge changes state.
+    static let height: CGFloat = 32
 
     let bot: LichessBotInfo
     let speed: String
     @ObservedObject var lichess: LichessController
-    @Binding var minutes: Int
-    @Binding var increment: Int
-    @Binding var rated: Bool
-    @State private var confirming = false
+    let minutes: Int
+    let increment: Int
+    let rated: Bool
 
     var body: some View {
         let state = lichess.challengeState(bot.username)
@@ -274,6 +275,7 @@ private struct LobbyRow: View {
             action(state, available)
                 .frame(width: Self.actionWidth, alignment: .trailing)
         }
+        .frame(height: Self.height)
         .opacity(available ? 1 : 0.5)
         .padding(.vertical, 2)
     }
@@ -281,21 +283,18 @@ private struct LobbyRow: View {
     @ViewBuilder private func action(_ state: LichessController.ChallengeState?, _ available: Bool) -> some View {
         if state?.isPending == true {
             ProgressView()
-                .controlSize(.small)
+                .controlSize(.mini)
                 .help("Waiting for \(bot.username) to answer")
         } else if state == .accepted {
             Label("Accepted", systemImage: "checkmark.circle.fill")
                 .font(.caption)
                 .foregroundStyle(.green)
         } else {
-            Button("Challenge") { confirming = true }
-                .disabled(!available || blocked != nil)
-                .help(blocked ?? (available ? "Challenge \(bot.username)" : "Not available now"))
-                .popover(isPresented: $confirming, arrowEdge: .leading) {
-                    ChallengePopover(bot: bot, minutes: $minutes, increment: $increment, rated: $rated) {
-                        Task { await lichess.challenge(username: bot.username, minutes: minutes, increment: increment, rated: rated) }
-                    }
-                }
+            Button("Challenge") {
+                Task { await lichess.challenge(username: bot.username, minutes: minutes, increment: increment, rated: rated) }
+            }
+            .disabled(!available || blocked != nil)
+            .help(blocked ?? (available ? "Challenge \(bot.username), \(minutes)+\(increment), \(rated ? "rated" : "casual")" : "Not available now"))
         }
     }
 
@@ -321,43 +320,6 @@ private struct LobbyRow: View {
     }
 }
 
-/// The challenge window: the clock and rated choice, then send.
-private struct ChallengePopover: View {
-    let bot: LichessBotInfo
-    @Binding var minutes: Int
-    @Binding var increment: Int
-    @Binding var rated: Bool
-    let send: () -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        let speed = LichessController.speed(minutes: minutes, increment: increment)
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(bot.username).font(.headline).lineLimit(1)
-                Spacer()
-                Text(bot.ratings[speed].map { "\(speed) \($0)" } ?? "\(speed) unrated")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-            TimeControlPicker(minutes: $minutes, increment: $increment)
-            Toggle("Rated", isOn: $rated)
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Challenge") {
-                    dismiss()
-                    send()
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(16)
-        .frame(width: 340)
-    }
-}
-
 /// How the latest challenge to one player went, next to the challenge-by-name field.
 private struct ChallengeStatus: View {
     var state: LichessController.ChallengeState?
@@ -365,7 +327,7 @@ private struct ChallengeStatus: View {
     var body: some View {
         switch state {
         case .sending?, .waiting?:
-            ProgressView().controlSize(.small)
+            ProgressView().controlSize(.mini)
         case .accepted?:
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Accepted")
         case .declined(let why)?:

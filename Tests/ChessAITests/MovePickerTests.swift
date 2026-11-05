@@ -132,6 +132,21 @@ final class MovePickerTests: XCTestCase {
         XCTAssertEqual(decision.reason, "style")
     }
 
+    func testEngineTopIsNamedOnlyWhenTheModelChoseAnother() throws {
+        let top = try XCTUnwrap(Move(uci: "e2e4")), other = try XCTUnwrap(Move(uci: "d2d4"))
+        let score = EngineScore(centipawns: 20, mate: nil)
+        let candidates = [
+            Candidate(move: top, san: "e4", score: score, line: []),
+            Candidate(move: other, san: "d4", score: score, line: []),
+        ]
+        func decision(_ move: Move, _ source: MoveSource) -> MoveDecision {
+            MoveDecision(move: move, source: source, reason: nil, candidates: candidates, evalWhite: nil)
+        }
+        XCTAssertEqual(decision(other, .model).engineTop, "e4")
+        XCTAssertNil(decision(top, .model).engineTop)
+        XCTAssertNil(decision(top, .engine).engineTop)
+    }
+
     func testNonCandidateAnswerFallsBackToEngine() async throws {
         let engine = try await startedEngine()
         defer { Task { await engine.shutdown() } }

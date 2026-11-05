@@ -45,7 +45,7 @@ while game.result == .ongoing && game.moves.count < maxPlies {
     if game.current.sideToMove == context.personaColor {
         let decision = try await picker.choose(in: game)
         san = game.current.san(for: decision.move)
-        notes.append(MoveNote(ply: notes.count, san: san, byPersona: true, source: decision.source, reason: decision.reason, evalBefore: decision.evalWhite))
+        notes.append(MoveNote(ply: notes.count, san: san, byPersona: true, source: decision.source, reason: decision.reason, evalBefore: decision.evalWhite, engineTop: decision.engineTop))
         game.play(decision.move)
         print("\(notes.count / 2 + notes.count % 2). \(san)  [\(decision.source.rawValue)] \(decision.reason ?? "")")
     } else {

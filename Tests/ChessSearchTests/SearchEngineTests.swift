@@ -149,6 +149,16 @@ final class SearchEngineTests: XCTestCase {
         XCTAssertFalse(lines.isEmpty)
     }
 
+    func testMaxMoveTimeCapsADepthSearch() async throws {
+        let e = SearchEngine(hashMB: 8, maxMoveTimeMs: 200)
+        await e.start()
+        let clock = ContinuousClock()
+        let began = clock.now
+        let lines = try await e.analyse(fen: Self.kiwipete, moves: [], multiPV: 4, limits: EngineLimits(depth: 40))
+        XCTAssertLessThan(clock.now - began, .milliseconds(300))
+        XCTAssertEqual(lines.count, 4)
+    }
+
     func testCancellationStopsTheSearch() async throws {
         let e = await makeEngine()
         let task = Task { try await e.analyse(fen: Self.kiwipete, moves: [], multiPV: 1, limits: EngineLimits(depth: 40)) }

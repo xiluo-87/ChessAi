@@ -26,7 +26,7 @@ people on Lichess, or face plain Stockfish at equal strength.
 ```bash
 git clone https://github.com/xiluo-87/ChessAi.git
 cd ChessAi
-swift run ChessAi
+swift run -c release ChessAi
 ```
 
 Start from the toolbar's **New Game** menu (⌘N as White, ⇧⌘N as Black), then drag or click your pieces. Moves are
@@ -57,7 +57,11 @@ Cheapest source first:
 The persona's prompt stays identical for a whole game, so the provider can cache it. Model calls are capped per game
 and spread out so the middlegame keeps some. If a call fails, it plays the engine's best move instead of stalling.
 
-**Strength** is the candidate search depth (Settings → General): about 6–8 plays at club level, 14 is very strong. A wider
+**Engine** (Settings → Engine) is Stockfish by default. `ChessSearch`, our own in-process engine, can replace it for the
+persona's candidates and game reviews. It is weaker and stops at 2 seconds per position, and needs no Stockfish install
+unless you watch a Stockfish match.
+
+**Strength** is the candidate search depth (Settings → Engine): about 6–8 plays at club level, 14 is very strong. A wider
 candidate margin gives the persona more room for style at some cost in strength.
 
 ## What it learns
@@ -184,7 +188,7 @@ combined way. Engine use is allowed because the account is marked as a bot.
 4. Switch the **Lichess** panel to **Online**. The bot accepts challenges matching Settings → Lichess: rapid,
    classical and correspondence by default; rated or casual; bots and humans.
 5. Challenge someone yourself from **Play**, or pick a bot from **Lobby**: the bots online now, highest rated first
-   for your clock. **Challenge** opens a window for the clock (blitz and rapid presets) and rated, and the row shows a
+   for your clock. **Challenge** sends at once, with the clock and rated choice above the list, and the row shows a
    spinner until the bot answers. Unanswered challenges are withdrawn after 10 seconds. Bots that have hit Lichess's
    100 bot games a day, or declined in the last hour, stay listed but greyed out.
 
@@ -256,7 +260,7 @@ otherwise: `SearchEngine(weights: try EvalWeights.bundled(round: 1))`, or `EvalW
 |---|---|
 | `ChessCore` | Rules, legal move generation, SAN, FEN, PGN (perft-tested); the `AnalysisEngine` protocol |
 | `ChessEngine` | Stockfish over UCI, with serialized commands |
-| `ChessSearch` | `SearchEngine`, an in-process alpha-beta engine for where Stockfish cannot run (iOS); not used by the app yet |
+| `ChessSearch` | `SearchEngine`, an in-process alpha-beta engine for where Stockfish cannot run (iOS); optional in the Mac app |
 | `ChessAI` | Model CLI adapters, router and cost ledger, memory store, move picker, game review, memory updater, Lichess client and bot |
 | `ChessApp` | The SwiftUI app |
 | `ChessCLI` | Headless self-play |
