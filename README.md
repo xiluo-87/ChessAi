@@ -29,6 +29,15 @@ cd ChessAi
 swift run -c release ChessAi
 ```
 
+To get a regular app you can open from Finder, build `dist/ChessAi.app`. Add `--install` to copy it to `/Applications`:
+
+```bash
+scripts/make-app.sh --install
+```
+
+It is signed for this Mac only and has no icon yet. macOS may ask once for Keychain access to your Lichess token, and
+again after a rebuild. Settings and data are shared with `swift run`.
+
 Start from the toolbar's **New Game** menu (⌘N as White, ⇧⌘N as Black), then drag or click your pieces. Moves are
 listed as you play. When the game ends, the persona's review and summary appear under **Game → Review**, and its
 updated notes in **Memory**. Settings that are set once (models, strength, Lichess account) are in **Settings** (⌘,).

@@ -3,6 +3,7 @@
 *.xcodeproj/
 DerivedData/
 .DS_Store
+dist/
 
 # Secrets: never commit env files, keys or tokens (the Lichess token lives in the Keychain)
 .env
