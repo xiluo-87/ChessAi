@@ -18,8 +18,9 @@ swift build -c release --product ChessAi
 
 app=dist/ChessAi.app
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$(swift build -c release --show-bin-path)/ChessAi" "$app/Contents/MacOS/ChessAi"
+cp Assets/AppIcon/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 
 # The identifier matches the name `swift run` stores settings under, so both share the same settings.
 cat > "$app/Contents/Info.plist" <<'PLIST'
@@ -28,6 +29,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key><string>ChessAi</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleIdentifier</key><string>ChessAi</string>
     <key>CFBundleName</key><string>ChessAi</string>
     <key>CFBundlePackageType</key><string>APPL</string>
