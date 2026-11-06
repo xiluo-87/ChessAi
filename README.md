@@ -2,20 +2,23 @@
 
 A native macOS chess app where you play **JSON Bourne**, an LLM chess persona that learns from every game.
 
-Stockfish finds the sound moves; a language model picks among them by style, plan and what it has learned about you.
-After each game the persona reviews it with Stockfish, then rewrites a small, bounded set of notes on its own play and
+A chess engine finds the sound moves: Stockfish, or `ChessSearch`, our own custom engine, which runs inside the app. A
+language model picks among them by style, plan and what it has learned about you. After each game the persona reviews it with
+the engine, then rewrites a small, bounded set of notes on its own play and
 on its opponent. Every note records why it was noted. The same persona can play you locally, take on other bots and
 people on Lichess, or face plain Stockfish at equal strength.
 
 - **Learns you:** it tracks your openings, habits and costliest mistakes, and plays against them.
 - **Develops a style:** favourite openings become its own book; preferences and weaknesses carry confidence and evidence.
 - **Cheap to run:** the strong model is asked only when a choice matters; everything else is free and local.
+- **Its own engine:** `ChessSearch` runs inside the app and can replace Stockfish with one setting.
 - **Your model, your prompt:** runs on the CLIs you already use (`claude`, `codex`, `opencode`), with a model picker.
 
 ## Requirements
 
 - macOS 14 or later, with Swift 6 (Xcode 16 or later, or the matching command line tools)
-- [Stockfish](https://stockfishchess.org): `brew install stockfish`
+- [Stockfish](https://stockfishchess.org): `brew install stockfish`. It is the default engine. With `ChessSearch`
+  selected, you only need it for Stockfish matches.
 - At least one model CLI installed and signed in:
   - [Claude Code](https://claude.com/claude-code) (`claude`), the default; on a plan login it costs no API spend
   - [Codex](https://github.com/openai/codex) (`codex`)
@@ -59,25 +62,52 @@ Cheapest source first:
 
 1. **Forced:** the only legal move.
 2. **Book:** the next move of one of the persona's own opening lines, learned from earlier games.
-3. **Engine:** Stockfish's top lines (MultiPV). If only one is sound, the best clearly leads, or quiet opening moves
+3. **Engine:** the engine's top lines (MultiPV). If only one is sound, the best clearly leads, or quiet opening moves
    are equal, it plays without asking a model.
 4. **Thought:** otherwise the **strong** model picks one sound candidate, with a short reason and a running plan.
 
 The persona's prompt stays identical for a whole game, so the provider can cache it. Model calls are capped per game
 and spread out so the middlegame keeps some. If a call fails, it plays the engine's best move instead of stalling.
 
-**Engine** (Settings → Engine) is Stockfish by default. `ChessSearch`, our own in-process engine, can replace it for the
-persona's candidates and game reviews. It is weaker and stops at 2 seconds per position, and needs no Stockfish install
-unless you watch a Stockfish match.
-
 **Strength** is the candidate search depth (Settings → Engine): about 6–8 plays at club level, 14 is very strong. A wider
 candidate margin gives the persona more room for style at some cost in strength.
+
+### The engines
+
+Choose the engine in **Settings → Engine**. It finds the persona's candidates and reviews its games. A change applies
+from the next game; the Lichess bot picks it up when it next goes online.
+
+| | Stockfish | `ChessSearch` |
+|---|---|---|
+| Runs as | A separate program you install | Part of the app |
+| Licence | GPLv3, not shipped with this repo | MIT, written for this project |
+| Time limit | None: searches to the Strength depth | 2 seconds per position, even if short of that depth |
+| Threads | Two | One |
+| Strength | Far stronger | Weaker, see below |
+
+**What `ChessSearch` is:** alpha-beta search (PVS, iterative deepening, aspiration windows, quiescence, a transposition
+table, null-move pruning, late-move reductions) with MultiPV and repetition detection from the game's moves. Its
+evaluation is material plus piece-square tables, with no king safety, pawn structure or mobility yet, so its openings
+can look aimless. No code or tables come from Stockfish or any other engine. It exists because an iOS version cannot
+run Stockfish, and it can be trained: see [Development](#development).
+
+**Strength:** rough figures from 20-game matches at 200 ms per move against Stockfish 16, on a Linux VM, about ±150 Elo:
+
+| Opponent | Result | Elo difference |
+|---|---|---|
+| Stockfish Skill 0 | +18 =0 −2 | +382 |
+| Stockfish Skill 5 | +7 =0 −13 | −108 |
+| Stockfish full strength, depth 6 | +10 =5 −5 | +89 |
+
+**Use a release build.** `ChessSearch` runs inside the app, so a debug build slows it badly: about 41,000 nodes per
+second against 2.2 million in release on a MacBook Pro. `swift run -c release` and `scripts/make-app.sh` are both
+release builds; plain `swift run` is not.
 
 ## What it learns
 
 After each game:
 
-1. **Stockfish reviews every move locally:** loss in centipawns, inaccuracies, mistakes and blunders, the better move,
+1. **The engine reviews every move locally:** loss in centipawns, inaccuracies, mistakes and blunders, the better move,
    and per-side statistics such as accuracy by phase, castling timing and early queen moves. This is free.
 2. **The cheap model makes two calls:**
    - It rewrites the persona's own notes (openings, strategy, principles, weaknesses) and writes a short summary.
@@ -201,7 +231,7 @@ combined way. Engine use is allowed because the account is marked as a bot.
    spinner until the bot answers. Unanswered challenges are withdrawn after 10 seconds. Bots that have hit Lichess's
    100 bot games a day, or declined in the last hour, stay listed but greyed out.
 
-With under 90 seconds on its clock the persona skips the model and plays Stockfish's top move. Dropped game streams
+With under 90 seconds on its clock the persona skips the model and plays the engine's top move. Dropped game streams
 reconnect without losing the game. Only rated games change a rating; Lichess shows a placeholder until then.
 
 ## JSON Bourne vs Stockfish
@@ -227,7 +257,7 @@ Everything stays on your Mac:
 
 ```bash
 swift build
-swift test          # about 130 tests: perft, both engines, training, memory, privacy, picker, CLI arguments, Lichess (stubbed)
+swift test          # about 140 tests: perft, both engines, training, memory, privacy, picker, CLI arguments, Lichess (stubbed)
 ```
 
 The Stockfish, move picker and Lichess game tests need Stockfish and skip without it; `ChessSearch`'s tests do not.
@@ -269,7 +299,7 @@ otherwise: `SearchEngine(weights: try EvalWeights.bundled(round: 1))`, or `EvalW
 |---|---|
 | `ChessCore` | Rules, legal move generation, SAN, FEN, PGN (perft-tested); the `AnalysisEngine` protocol |
 | `ChessEngine` | Stockfish over UCI, with serialized commands |
-| `ChessSearch` | `SearchEngine`, an in-process alpha-beta engine for where Stockfish cannot run (iOS); optional in the Mac app |
+| `ChessSearch` | `SearchEngine`, our own in-process alpha-beta engine, chosen in Settings → Engine; also for where Stockfish cannot run (iOS) |
 | `ChessAI` | Model CLI adapters, router and cost ledger, memory store, move picker, game review, memory updater, Lichess client and bot |
 | `ChessApp` | The SwiftUI app |
 | `ChessCLI` | Headless self-play |
