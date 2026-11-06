@@ -3,6 +3,9 @@ import Foundation
 /// What the move picker, the game review and the Lichess bot need from an engine. `StockfishEngine` (ChessEngine,
 /// over UCI) is the Mac app's; `SearchEngine` (ChessSearch) runs in-process, where no subprocess may be started.
 public protocol AnalysisEngine: Sendable {
+    /// What to call it where people can read it.
+    nonisolated var name: String { get }
+
     func start() async throws
     /// Forgets what earlier games taught the engine (its hash), before an unrelated game.
     func newGame() async throws

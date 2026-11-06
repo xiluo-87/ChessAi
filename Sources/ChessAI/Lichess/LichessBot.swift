@@ -10,8 +10,6 @@ public struct LichessBotSettings: Codable, Sendable, Hashable {
     public var acceptCasual = true
     public var acceptBots = true
     public var acceptHumans = true
-    /// Said once at the start of each game; empty says nothing.
-    public var greeting = "Hi! I'm JSON Bourne, an LLM persona choosing among Stockfish's candidate moves. Good luck!"
 
     public init() {}
 }
@@ -31,7 +29,7 @@ public enum LichessBotUpdate: Sendable {
 }
 
 /// Plays the persona on a Lichess BOT account: takes challenges, follows each game's stream, moves with the same
-/// MovePicker as the app (Stockfish candidates, the strong model picks), and reviews every finished game into memory.
+/// MovePicker as the app (the engine's candidates, the strong model picks), and reviews every finished game into memory.
 public actor LichessBot {
     private let client: LichessClient
     private let account: LichessAccount
@@ -46,6 +44,11 @@ public actor LichessBot {
     private var games: [String: Task<Void, Never>] = [:]
     /// When a challenge was last accepted: its game has not started yet, but the bot is already taken.
     private var acceptedAt: Date?
+
+    /// Said once at the start of each game.
+    static func greeting(engine: String) -> String {
+        "Hi! I'm JSON Bourne, an LLM persona choosing among \(engine)'s candidate moves. Good luck!"
+    }
 
     public init(
         client: LichessClient, account: LichessAccount, engine: any AnalysisEngine, router: ModelRouter, store: MemoryStore,
@@ -186,8 +189,8 @@ public actor LichessBot {
                         }
                         if match == nil {
                             match = try await setUp(id: id, white: white, black: black, fen: fen, rated: rated, speed: speed)
-                            if state.moves.isEmpty, !settings.greeting.isEmpty {
-                                try? await client.chat(id, text: settings.greeting)
+                            if state.moves.isEmpty {
+                                try? await client.chat(id, text: Self.greeting(engine: engine.name))
                             }
                         }
                         if var m = match {

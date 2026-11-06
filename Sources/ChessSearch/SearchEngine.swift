@@ -13,6 +13,7 @@ public struct SearchStats: Sendable {
 /// own thread so it does not hold up Swift's cooperative pool, and stops at its depth or time limit, or soon after
 /// the calling task is cancelled.
 public actor SearchEngine: AnalysisEngine {
+    public nonisolated let name = "ChessSearch"
     private let hashMB: Int
     private let maxMoveTimeMs: Int?
     private let tables: Tables

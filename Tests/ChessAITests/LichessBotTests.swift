@@ -300,6 +300,19 @@ final class LichessBotTests: XCTestCase {
 
     /// Regression: a second challenge arriving before the first one's game had started was accepted too, so two games
     /// ran at once and the first one's summary replaced the second one's on screen.
+    func testGreetingNamesTheEngine() {
+        XCTAssertEqual(
+            LichessBot.greeting(engine: "ChessSearch"),
+            "Hi! I'm JSON Bourne, an LLM persona choosing among ChessSearch's candidate moves. Good luck!")
+    }
+
+    func testSettingsSavedWithAGreetingStillLoad() throws {
+        let saved = #"{"speeds":["rapid"],"acceptRated":true,"acceptCasual":false,"acceptBots":true,"acceptHumans":true,"greeting":"old"}"#
+        let settings = try JSONDecoder().decode(LichessBotSettings.self, from: Data(saved.utf8))
+        XCTAssertEqual(settings.speeds, ["rapid"])
+        XCTAssertFalse(settings.acceptCasual)
+    }
+
     func testSecondChallengeBeforeGameStartIsDeclined() async throws {
         let engine = try await startedEngine()
         defer { Task { await engine.shutdown() } }

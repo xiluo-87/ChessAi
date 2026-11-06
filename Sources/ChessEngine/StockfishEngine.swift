@@ -2,6 +2,7 @@ import Foundation
 import ChessCore
 
 public actor StockfishEngine: AnalysisEngine {
+    public nonisolated let name = "Stockfish"
     private let path: String
     private var process: Process?
     private var stdinHandle: FileHandle?
