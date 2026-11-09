@@ -100,6 +100,21 @@ final class MovePickerTests: XCTestCase {
         XCTAssertNotEqual(off.source, .book)
     }
 
+    func testOpeningBookMoveSkipsEngineAndModel() async throws {
+        let engine = try await startedEngine()
+        defer { Task { await engine.shutdown() } }
+        let backend = FakeBackend { _ in ["move": "x", "reason": "r", "plan": "p"] }
+        let book = try OpeningBook(text: "\(OpeningBook.key(.start)) ; d2d4 1\n")
+        let p = MovePicker(
+            router: makeRouter(backend), engine: engine, settings: Self.wide, persona: MemoryStore.defaultPersona,
+            dossier: nil, context: singlePlayer(.human("alice")), book: book)
+        let decision = try await p.choose(in: Game())
+        XCTAssertEqual(decision.source, .book)
+        XCTAssertEqual(decision.move.uci, "d2d4")
+        XCTAssertEqual(decision.reason, "opening book")
+        XCTAssertEqual(backend.callCount, 0)
+    }
+
     func testRepertoireForOtherSideIsIgnored() async throws {
         let engine = try await startedEngine()
         defer { Task { await engine.shutdown() } }

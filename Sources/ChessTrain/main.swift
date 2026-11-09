@@ -1,4 +1,6 @@
 import Foundation
+import ChessCore
+import ChessEngine
 import ChessSearch
 
 // chessai-train: tune ChessSearch's evaluation against game results.
@@ -8,10 +10,14 @@ import ChessSearch
 //   chessai-train tune POSITIONS... [--from W] [--epochs E] [--rate R] [--regularization L] --out W.json
 //   chessai-train compare W [--against W] [--games N] [--depth D] [--record]
 //   chessai-train rounds
+//   chessai-train book OPENINGS.tsv... [--plies P] [--margin CP] [--depth D] [--engine stockfish|chesssearch] --out BOOK
 //
 // W is a weights file or round:N, a round kept with the engine (round:0 is the standard values). A typical round:
 // self-play with the latest round, tune from it, then compare the result with it; --record adds the match to the
 // new file's note. A round worth keeping goes to Sources/ChessSearch/Resources/Weights/round-N.json.
+//
+// `book` turns lists of opening lines (tab-separated with a `pgn` column) into ChessSearch's opening book, keeping only
+// moves the engine finds within the margin of its best. The book goes to Sources/ChessSearch/Resources/Book.
 
 let args = Array(CommandLine.arguments.dropFirst())
 
@@ -123,6 +129,38 @@ case "rounds":
         print("round \(w.round): \(w.positions) positions. \(w.note)")
     }
 
+case "book":
+    let files = inputs
+    guard !files.isEmpty else { fail("give one or more opening files (TSV with a pgn column)") }
+    let out = output()
+    let plies = option("--plies").flatMap(Int.init) ?? 16
+    let margin = option("--margin").flatMap(Int.init) ?? 50
+    let depth = option("--depth").flatMap(Int.init) ?? 14
+    let lines = try files.flatMap { OpeningBook.lines(fromTSV: try String(contentsOfFile: $0, encoding: .utf8)) }
+    guard !lines.isEmpty else { fail("no opening lines found: each file needs a header with a pgn column") }
+    let engine: any AnalysisEngine
+    switch option("--engine") ?? "stockfish" {
+    case "stockfish":
+        guard let stockfish = try? StockfishEngine() else { fail("Stockfish not found: install it, or pass --engine chesssearch") }
+        engine = stockfish
+    case "chesssearch": engine = SearchEngine(hashMB: 64)
+    default: fail("--engine is stockfish or chesssearch")
+    }
+    try await engine.start()
+    print("\(lines.count) opening lines; checking each position with \(engine.name) at depth \(depth)")
+    let book = try await OpeningBook.build(
+        lines: lines, plies: plies, marginCp: margin, engine: engine, limits: EngineLimits(depth: depth, movetimeMs: 5_000)
+    ) { done, total in
+        if done % 500 == 0 || done == total { print("\(done)/\(total) positions, \(elapsed())"); fflush(stdout) }
+    }
+    await engine.shutdown()
+    let header = [
+        "Opening book for ChessSearch, built by chessai-train book from \(lines.count) opening lines.",
+        "Moves within \(margin) cp of \(engine.name)'s best at depth \(depth) (at most 5 s each), up to ply \(plies). Weight: lines that play it.",
+    ]
+    try book.text(header: header).write(to: out, atomically: true, encoding: .utf8)
+    print("\(book.count) positions written to \(out.path)")
+
 default:
     print("""
     usage:
@@ -131,6 +169,7 @@ default:
       chessai-train tune POSITIONS... [--from W] [--epochs E] [--rate R] [--regularization L] --out W.json
       chessai-train compare W [--against W] [--games N] [--depth D] [--record]
       chessai-train rounds
+      chessai-train book OPENINGS.tsv... [--plies P] [--margin CP] [--depth D] [--engine stockfish|chesssearch] --out BOOK
     W is a weights file or round:N (bundled with the engine; round:0 is the standard values).
     """)
     exit(args.isEmpty ? 0 : 1)

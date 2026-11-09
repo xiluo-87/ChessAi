@@ -114,7 +114,7 @@ final class LichessController: ObservableObject {
         let (stream, continuation) = AsyncStream<LichessBotUpdate>.makeStream()
         let bot = LichessBot(
             client: client, account: account, engine: engine, router: app.router, store: app.store,
-            personaID: app.persona.id, settings: settings, play: app.settings.play,
+            personaID: app.persona.id, settings: settings, play: app.settings.play, book: app.book(for: engine),
             onUpdate: { continuation.yield($0) })
         self.bot = bot
         updates = Task { [weak self] in

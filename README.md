@@ -61,7 +61,8 @@ moves is shown in full.
 Cheapest source first:
 
 1. **Forced:** the only legal move.
-2. **Book:** the next move of one of the persona's own opening lines, learned from earlier games.
+2. **Book:** the next move of one of the persona's own opening lines, learned from earlier games. With `ChessSearch`,
+   then a move from its opening book, chosen at random in proportion to how often the named openings play it.
 3. **Engine:** the engine's top lines (MultiPV). If only one is sound, the best clearly leads, or quiet opening moves
    are equal, it plays without asking a model.
 4. **Thought:** otherwise the **strong** model picks one sound candidate, with a short reason and a running plan.
@@ -88,7 +89,8 @@ from the next game; the Lichess bot picks it up when it next goes online.
 **What `ChessSearch` is:** alpha-beta search (PVS, iterative deepening, aspiration windows, quiescence, a transposition
 table, null-move pruning, late-move reductions) with MultiPV and repetition detection from the game's moves. Its
 evaluation is material plus piece-square tables, with no king safety, pawn structure or mobility yet, so its openings
-can look aimless. No code or tables come from Stockfish or any other engine. It exists because an iOS version cannot
+can look aimless. To cover that, it plays from an **opening book** for the first moves (Stockfish does not need one).
+No code or tables come from Stockfish or any other engine. It exists because an iOS version cannot
 run Stockfish, and it can be trained: see [Development](#development).
 
 **Strength:** rough figures from 20-game matches at 200 ms per move against Stockfish 16, on a Linux VM, about ±150 Elo:
@@ -295,6 +297,16 @@ swift run -c release chessai-train compare round-2.json --against round:1 --game
 Keep the new round by copying it to `Resources/Weights` with its round number. The engine plays round 0 unless told
 otherwise: `SearchEngine(weights: try EvalWeights.bundled(round: 1))`, or `EvalWeights(contentsOf:)` for a file.
 
+**Opening book.** `Sources/ChessSearch/Resources/Book/opening-book.txt` is built from the CC0 list of named openings
+in [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (`a.tsv` to `e.tsv`). Each line is cut
+after 16 plies, and a move is kept only if Stockfish at depth 14 finds it within 50 centipawns of its best move there:
+
+```bash
+swift run -c release chessai-train book a.tsv b.tsv c.tsv d.tsv e.tsv --out Sources/ChessSearch/Resources/Book/opening-book.txt
+```
+
+`--plies`, `--margin`, `--depth` and `--engine stockfish|chesssearch` change those settings.
+
 | Target | Contents |
 |---|---|
 | `ChessCore` | Rules, legal move generation, SAN, FEN, PGN (perft-tested); the `AnalysisEngine` protocol |
@@ -303,7 +315,7 @@ otherwise: `SearchEngine(weights: try EvalWeights.bundled(round: 1))`, or `EvalW
 | `ChessAI` | Model CLI adapters, router and cost ledger, memory store, move picker, game review, memory updater, Lichess client and bot |
 | `ChessApp` | The SwiftUI app |
 | `ChessCLI` | Headless self-play |
-| `ChessTrain` | `chessai-train`: self-play and PGN positions, evaluation tuning, matches between weights |
+| `ChessTrain` | `chessai-train`: self-play and PGN positions, evaluation tuning, matches between weights, the opening book |
 
 ## License
 

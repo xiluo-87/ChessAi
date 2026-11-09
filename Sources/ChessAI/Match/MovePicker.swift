@@ -61,6 +61,8 @@ public actor MovePicker {
     private let settings: PlaySettings
     private let persona: PersonaProfile
     private let context: MatchContext
+    /// Tested opening moves for an engine that plays openings poorly on its own; nil plays the engine from move one.
+    private let book: OpeningBook?
     /// The same text for the whole game, so the provider's prompt cache serves every call after the first.
     private let system: String
     private var plan = ""
@@ -68,10 +70,11 @@ public actor MovePicker {
 
     public init(
         router: ModelRouter, engine: any AnalysisEngine, settings: PlaySettings, persona: PersonaProfile,
-        dossier: OpponentDossier?, context: MatchContext
+        dossier: OpponentDossier?, context: MatchContext, book: OpeningBook? = nil
     ) {
         self.router = router
         self.engine = engine
+        self.book = book
         self.settings = settings
         self.persona = persona
         self.context = context
@@ -89,6 +92,9 @@ public actor MovePicker {
             return MoveDecision(move: only, source: .forced, reason: "only legal move", candidates: [], evalWhite: nil)
         }
         if let book = bookMove(in: game) { return book }
+        if let move = book?.pick(at: position) {
+            return MoveDecision(move: move, source: .book, reason: "opening book", candidates: [], evalWhite: nil)
+        }
 
         let lines = try await engine.analyse(
             fen: game.startPosition.fen, moves: game.moves.map(\.uci), multiPV: settings.candidates, limits: EngineLimits(depth: settings.engineDepth))

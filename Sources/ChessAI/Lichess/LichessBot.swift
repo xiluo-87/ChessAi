@@ -39,6 +39,7 @@ public actor LichessBot {
     private let personaID: String
     private let settings: LichessBotSettings
     private let play: PlaySettings
+    private let book: OpeningBook?
     private let onUpdate: @Sendable (LichessBotUpdate) -> Void
     private var eventTask: Task<Void, Never>?
     private var games: [String: Task<Void, Never>] = [:]
@@ -52,9 +53,10 @@ public actor LichessBot {
 
     public init(
         client: LichessClient, account: LichessAccount, engine: any AnalysisEngine, router: ModelRouter, store: MemoryStore,
-        personaID: String, settings: LichessBotSettings, play: PlaySettings,
+        personaID: String, settings: LichessBotSettings, play: PlaySettings, book: OpeningBook? = nil,
         onUpdate: @escaping @Sendable (LichessBotUpdate) -> Void
     ) {
+        self.book = book
         self.client = client
         self.account = account
         self.engine = engine
@@ -230,7 +232,8 @@ public actor LichessBot {
         report(.gameStarted(id: id, opponent: opponent, personaColor: personaColor, rated: rated, speed: speed))
         return Match(
             id: id, context: context, opponent: opponent, white: white, black: black, rated: rated, speed: speed,
-            picker: MovePicker(router: router, engine: engine, settings: play, persona: persona, dossier: dossier, context: context),
+            picker: MovePicker(
+                router: router, engine: engine, settings: play, persona: persona, dossier: dossier, context: context, book: book),
             persona: persona, game: Game(start: start))
     }
 

@@ -15,14 +15,15 @@ let package = Package(
         // Stockfish over UCI.
         .target(name: "ChessEngine", dependencies: ["ChessCore"]),
         // An in-process engine (alpha-beta search), for where Stockfish cannot run. Depends on ChessCore only.
-        .target(name: "ChessSearch", dependencies: ["ChessCore"], resources: [.copy("Resources/Weights")]),
+        .target(name: "ChessSearch", dependencies: ["ChessCore"], resources: [.copy("Resources/Weights"), .copy("Resources/Book")]),
         // Model adapters, persona memory, move picking and post-game analysis.
         .target(name: "ChessAI", dependencies: ["ChessCore", "ChessEngine"]),
         .executableTarget(name: "ChessApp", dependencies: ["ChessCore", "ChessEngine", "ChessAI", "ChessSearch"]),
         // Headless runs: self-play against a weakened engine, for live smoke tests and later AvA.
         .executableTarget(name: "ChessCLI", dependencies: ["ChessCore", "ChessEngine", "ChessAI"]),
-        // Tunes ChessSearch's evaluation: self-play or PGN positions, fitting, and matches between weights.
-        .executableTarget(name: "ChessTrain", dependencies: ["ChessSearch"]),
+        // Tunes ChessSearch's evaluation (self-play or PGN positions, fitting, matches between weights) and builds its
+        // opening book.
+        .executableTarget(name: "ChessTrain", dependencies: ["ChessCore", "ChessSearch", "ChessEngine"]),
         .testTarget(name: "ChessCoreTests", dependencies: ["ChessCore"]),
         .testTarget(name: "ChessEngineTests", dependencies: ["ChessCore", "ChessEngine"]),
         .testTarget(name: "ChessAITests", dependencies: ["ChessAI"]),

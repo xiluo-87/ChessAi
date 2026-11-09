@@ -19,7 +19,10 @@ swift build -c release --product ChessAi
 app=dist/ChessAi.app
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "$(swift build -c release --show-bin-path)/ChessAi" "$app/Contents/MacOS/ChessAi"
+bin="$(swift build -c release --show-bin-path)"
+cp "$bin/ChessAi" "$app/Contents/MacOS/ChessAi"
+# ChessSearch's resources (its opening book and weights), where the app looks for them.
+cp -R "$bin/ChessAi_ChessSearch.bundle" "$app/Contents/Resources/"
 cp Assets/AppIcon/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 
 # The identifier matches the name `swift run` stores settings under, so both share the same settings.

@@ -130,6 +130,12 @@ final class AppModel: ObservableObject {
     var personaSide: PieceColor { boardIsExternal ? humanColor : personaColor }
     var bottomColor: PieceColor { boardIsExternal || engineMatch != nil ? personaSide : humanColor }
     var engineInstance: (any AnalysisEngine)? { engine }
+    /// ChessSearch's opening book, loaded once; nil when the app was built without one.
+    private static let chessSearchBook = OpeningBook.bundled()
+    /// The book for an engine: ChessSearch plays openings poorly without one, Stockfish needs none.
+    func book(for engine: any AnalysisEngine) -> OpeningBook? {
+        engine is SearchEngine ? Self.chessSearchBook : nil
+    }
     private(set) lazy var lichess = LichessController(app: self)
 
     /// Games and the Lichess bot started from now on use the engine chosen in Settings; running ones keep theirs.
@@ -177,7 +183,9 @@ final class AppModel: ObservableObject {
             let dossier = store.dossier(opponent, persona: persona.id, in: context)
             self.context = context
             self.dossier = dossier
-            picker = MovePicker(router: router, engine: engine, settings: settings.play, persona: persona, dossier: dossier, context: context)
+            picker = MovePicker(
+                router: router, engine: engine, settings: settings.play, persona: persona, dossier: dossier, context: context,
+                book: book(for: engine))
             stopEngineMatch()
             engineMatch = nil
             humanColor = color
@@ -319,7 +327,9 @@ final class AppModel: ObservableObject {
             play.engineDepth = depth
             // Reads its memory like any game (own notes, and its notes on this opponent if it has any); it writes nothing.
             let dossier = store.dossier(context.opponent, persona: persona.id, in: context)
-            let picker = MovePicker(router: router, engine: engine, settings: play, persona: persona, dossier: dossier, context: context)
+            let picker = MovePicker(
+                router: router, engine: engine, settings: play, persona: persona, dossier: dossier, context: context,
+                book: book(for: engine))
             self.context = nil
             self.picker = nil
             humanColor = color.opposite  // the engine's side; personaColor is then the persona's
